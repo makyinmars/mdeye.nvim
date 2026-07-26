@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  stylua:
+    name: Formatting (stylua)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua plugin tests
+
+  luacheck:
+    name: Lint (luacheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+      - uses: leafo/gh-actions-luarocks@v4
+      - name: Install luacheck
+        run: luarocks install luacheck
+      - name: Lint
+        run: luacheck lua plugin tests
+
+  test:
+    name: Tests (Neovim ${{ matrix.neovim }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        neovim: ["v0.11.0", "stable", "nightly"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+      - name: Version
+        run: nvim --version
+      - name: Run tests
+        run: nvim --headless -l tests/run.lua
+      - name: Benchmark (informational)
+        # CI runner timing varies; the 100 ms target is recorded on the
+        # reference development machine, not enforced here.
+        continue-on-error: true
+        run: nvim --headless -l tests/bench/bench.lua

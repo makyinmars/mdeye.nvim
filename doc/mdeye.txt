@@ -1,0 +1,183 @@
+*mdeye.txt*	Read Markdown as a document, inside Neovim
+
+Author:  franklin
+License: MIT
+
+==============================================================================
+CONTENTS						*mdeye* *mdeye-contents*
+
+  1. Introduction ................................ |mdeye-introduction|
+  2. Requirements ................................ |mdeye-requirements|
+  3. Commands .................................... |mdeye-commands|
+  4. Preview mappings ............................ |mdeye-mappings|
+  5. Lua interface ............................... |mdeye-lua|
+  6. Configuration ............................... |mdeye-configuration|
+  7. Highlights .................................. |mdeye-highlights|
+  8. Behavior .................................... |mdeye-behavior|
+  9. Limitations ................................. |mdeye-limitations|
+
+==============================================================================
+1. INTRODUCTION					*mdeye-introduction*
+
+mdeye.nvim opens a Markdown buffer as a separate, read-only document view:
+a generated preview buffer with semantically reflowed paragraphs, a centered
+maximum-width reading column, source markers removed, and semantic
+highlights. It is a document viewer, not source decoration, and it never
+opens a browser or webview.
+
+The source buffer is authoritative and is never modified. Unsaved edits
+update an open preview live (debounced). Every rendered block keeps its
+absolute source span, so you can always jump back to the exact source
+location.
+
+==============================================================================
+2. REQUIREMENTS					*mdeye-requirements*
+
+- Neovim 0.11 or newer.
+- The `markdown` and `markdown_inline` Tree-sitter parsers (bundled with
+  Neovim).
+
+Verify with: >
+    :checkhealth mdeye
+<
+==============================================================================
+3. COMMANDS						*mdeye-commands* *:MDEye*
+
+:MDEye			Toggle a preview in the current window.
+
+:MDEye current		Open or focus the preview in the current window. The
+			preview replaces the source in the window; `q`
+			restores the source buffer, cursor, and view exactly.
+			Requires 'hidden' when the source has unsaved
+			changes; otherwise opening fails cleanly and split
+			mode remains available.
+
+:MDEye split		Open or focus a synchronized preview in a right
+			split. Moving the source cursor scrolls the preview
+			to the corresponding rendered block.
+
+:MDEye tab		Open or focus the preview in a new tab page.
+
+:MDEye close		Close the preview and restore the source view when
+			appropriate. Works from the preview or the source.
+
+Opening the same source again focuses its existing preview instead of
+creating a duplicate session. Non-Markdown buffers are rejected with one
+notification.
+
+==============================================================================
+4. PREVIEW MAPPINGS					*mdeye-mappings*
+
+Buffer-local mappings inside the preview:
+
+q			Close the preview and restore the source view.
+
+<CR>			If the cursor is on a link, open it. Otherwise jump
+			to the source location of the block under the
+			cursor, adding one |jumplist| entry.
+
+gx			Open the link under the cursor.
+
+mdeye installs no global keymaps. Suggested mapping: >
+    vim.keymap.set("n", "<leader>me", "<Cmd>MDEye<CR>", { desc = "Markdown eye" })
+<
+==============================================================================
+5. LUA INTERFACE					*mdeye-lua*
+
+setup({opts})					*mdeye.setup()*
+	Apply configuration (see |mdeye-configuration|). Optional unless you
+	change defaults.
+
+open({opts})					*mdeye.open()*
+	Open or focus a preview for the current Markdown buffer.
+	{opts} is an optional table: >
+	    require("mdeye").open({ mode = "current" })  -- "split" | "tab"
+<
+close()						*mdeye.close()*
+	Close the preview related to the current buffer (source or preview).
+
+toggle({opts})					*mdeye.toggle()*
+	Close an open preview for the current buffer, or open one with the
+	given mode.
+
+==============================================================================
+6. CONFIGURATION				*mdeye-configuration*
+
+Defaults: >
+    require("mdeye").setup({
+      open = "current",   -- default placement: "current" | "split" | "tab"
+      max_width = 88,     -- maximum reading-column width in display cells
+      min_margin = 3,     -- minimum margin on each side
+      debounce_ms = 120,  -- live-update debounce in milliseconds
+      code = {
+        wrap = false,     -- fenced code is clipped, never reflowed
+      },
+    })
+<
+The content width is `min(max_width, available_width - 2 * min_margin)`,
+centered with symmetric margins. Renderer internals are deliberately not
+configurable; highlight groups are the customization seam.
+
+==============================================================================
+7. HIGHLIGHTS					*mdeye-highlights*
+
+All groups use `:highlight default link` semantics, linking to Tree-sitter
+markup groups or standard groups that exist in the active colorscheme. No
+colors are hard-coded, and explicit user highlights are never overwritten.
+
+  MDEyeText		Body text.
+  MDEyeMuted		De-emphasized text (e.g. code-block language tag).
+  MDEyeHeading1..6	Heading levels.
+  MDEyeHeadingRule	Divider line under H1/H2 headings; thematic breaks.
+  MDEyeEmphasis		Italic emphasis.
+  MDEyeStrong		Strong (bold) text.
+  MDEyeStrike		Strikethrough text.
+  MDEyeCode		Inline code.
+  MDEyeCodeBlock	Fenced code block background.
+  MDEyeLink		Link labels.
+  MDEyeQuote		Block-quote text and gutter.
+  MDEyeListMarker	List bullets and ordered markers.
+  MDEyeTableBorder	Table borders.
+  MDEyeTaskChecked	Completed task glyph.
+  MDEyeTaskUnchecked	Open task glyph.
+
+==============================================================================
+8. BEHAVIOR						*mdeye-behavior*
+
+Preview isolation~
+The preview buffer is named `mdeye://<path>` and uses `filetype=mdeye`,
+'buftype' `nofile`, 'bufhidden' `wipe`, no 'swapfile', and 'undolevels' -1.
+Markdown linters, LSP servers, diagnostics, and formatting autocmds never
+attach to it. The preview window disables 'number', 'relativenumber',
+'signcolumn', 'foldcolumn', 'cursorline', 'colorcolumn', 'list', 'spell',
+and 'wrap' (mdeye generates real wrapped lines).
+
+Live updates~
+Source edits (including unsaved ones) schedule a debounced full re-render.
+Resizing the owner window reflows the document and restores the block that
+was at the top of the view, so reading position is preserved.
+
+Links~
+Link labels are visible; destinations are hidden but retained. Relative
+links resolve against the source file's directory at interaction time,
+never against Neovim's current working directory. Absolute http(s) and
+mailto links also carry extmark `url` metadata (OSC 8) where supported.
+
+Cleanup~
+Closing a preview removes its buffer, window (split/tab), autocmds,
+mappings, and timers. Wiping either the source or the preview — including a
+preview wiped by an ordinary buffer switch, since 'bufhidden' is `wipe` —
+terminates the session safely. Repeated open/close cycles leak nothing.
+
+==============================================================================
+9. LIMITATIONS					*mdeye-limitations*
+
+Neovim renders on a character-cell grid. mdeye reproduces document structure
+and reading layout, not typography. It cannot provide proportional fonts,
+per-heading font sizes, pixel-level spacing, browser-quality tables, or
+inline raster images. Bold and italic rendering depends on the terminal and
+font. Images render as their alt text; raw HTML renders as readable plain
+text and is never executed. In-document `#anchor` links are not yet
+supported.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
