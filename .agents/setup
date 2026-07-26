@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly NEOVIM_VERSION="v0.12.4"
+readonly NEOVIM_SHA256="012bf3fcac5ade43914df3f174668bf64d05e049a4f032a388c027b1ebd78628"
+readonly STYLUA_VERSION="v2.5.2"
+readonly STYLUA_SHA256="bcb0d855e91f102f28a370e850f8566b3b44b79e6274d806ea5246837c0fd5ab"
+
+if [[ "$(uname -m)" != "x86_64" ]]; then
+  echo "Unsupported orb architecture: $(uname -m)" >&2
+  exit 1
+fi
+
+if [[ "$(id -u)" -eq 0 ]]; then
+  SUDO=()
+else
+  SUDO=(sudo)
+fi
+
+packages=()
+command -v curl >/dev/null 2>&1 || packages+=(curl)
+command -v unzip >/dev/null 2>&1 || packages+=(unzip)
+command -v luacheck >/dev/null 2>&1 || packages+=(lua-check)
+
+if ((${#packages[@]})); then
+  echo "Installing system packages: ${packages[*]}"
+  "${SUDO[@]}" apt-get update
+  "${SUDO[@]}" apt-get install -y --no-install-recommends ca-certificates "${packages[@]}"
+fi
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+neovim_dir="/opt/nvim-${NEOVIM_VERSION}"
+if [[ ! -x "$neovim_dir/bin/nvim" ]]; then
+  echo "Installing Neovim ${NEOVIM_VERSION}"
+  neovim_archive="$tmp_dir/nvim.tar.gz"
+  curl -fsSL --retry 3 -o "$neovim_archive" \
+    "https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-linux-x86_64.tar.gz"
+  echo "${NEOVIM_SHA256}  ${neovim_archive}" | sha256sum --check --status
+  "${SUDO[@]}" rm -rf "$neovim_dir"
+  "${SUDO[@]}" mkdir -p "$neovim_dir"
+  "${SUDO[@]}" tar -xzf "$neovim_archive" --strip-components=1 -C "$neovim_dir"
+fi
+"${SUDO[@]}" ln -sfn "$neovim_dir/bin/nvim" /usr/local/bin/nvim
+
+if [[ "$(stylua --version 2>/dev/null || true)" != "stylua ${STYLUA_VERSION#v}" ]]; then
+  echo "Installing StyLua ${STYLUA_VERSION}"
+  stylua_archive="$tmp_dir/stylua.zip"
+  curl -fsSL --retry 3 -o "$stylua_archive" \
+    "https://github.com/JohnnyMorganz/StyLua/releases/download/${STYLUA_VERSION}/stylua-linux-x86_64.zip"
+  echo "${STYLUA_SHA256}  ${stylua_archive}" | sha256sum --check --status
+  unzip -q "$stylua_archive" -d "$tmp_dir/stylua"
+  "${SUDO[@]}" install -m 0755 "$tmp_dir/stylua/stylua" /usr/local/bin/stylua
+fi
+
+echo "Orb setup complete: $(nvim --version | head -n 1), $(stylua --version), $(luacheck --version | head -n 1)"
