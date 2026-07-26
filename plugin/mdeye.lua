@@ -9,7 +9,7 @@ vim.api.nvim_create_user_command("MDEye", function(cmd)
 end, {
   nargs = "?",
   complete = function()
-    return { "current", "split", "tab", "close" }
+    return { "current", "split", "tab", "close", "copy-code" }
   end,
   desc = "Toggle or control the mdeye Markdown document view",
 })

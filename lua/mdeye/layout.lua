@@ -18,10 +18,31 @@ local M = {}
 ---@field row_end integer 0-based preview row, inclusive
 ---@field source MDEyeSourceSpan
 
+---@class MDEyeHeadingMap
+---@field row integer 0-based preview row
+---@field level integer
+---@field title string
+---@field anchor string
+---@field source MDEyeSourceSpan
+
+---@class MDEyeAnchorMap
+---@field row integer 0-based preview row
+---@field source MDEyeSourceSpan
+
+---@class MDEyeCodeBlockMap
+---@field row_start integer 0-based preview row, including the language label
+---@field row_end integer 0-based preview row
+---@field source MDEyeSourceSpan
+---@field lines string[] original fenced content
+---@field lang string|nil
+
 ---@class MDEyeRenderPlan
 ---@field lines string[]
 ---@field marks MDEyeMark[]
 ---@field blocks MDEyeBlockMap[] ordered by row_start; nested blocks follow parents
+---@field headings MDEyeHeadingMap[]
+---@field anchors table<string, MDEyeAnchorMap>
+---@field code_blocks MDEyeCodeBlockMap[]
 ---@field width integer content width in display cells
 ---@field margin integer left margin in display cells
 
@@ -30,6 +51,7 @@ local M = {}
 ---@field max_width integer
 ---@field min_margin integer
 ---@field tab_width integer|nil defaults to 4
+---@field code_wrap boolean|nil wrap fenced lines to the content width
 ---@field measure fun(s: string): integer display cells; defaults to strdisplaywidth
 
 local MIN_CONTENT = 20
@@ -37,6 +59,7 @@ local TABLE_CELL_MIN = 3
 
 local PRIORITY_BLOCK = 100
 local PRIORITY_INLINE = 110
+local PRIORITY_CODE = 120
 
 ---@class MDEyeFrag
 ---@field text string
@@ -82,6 +105,10 @@ local function flatten_runs(runs, hls, target, out)
       local nhls = { "MDEyeLink" }
       vim.list_extend(nhls, hls or {})
       out[#out + 1] = { text = run.text or "image", hls = nhls, target = run.target or target }
+    elseif run.kind == "footnote" then
+      local nhls = { "MDEyeFootnote" }
+      vim.list_extend(nhls, hls or {})
+      out[#out + 1] = { text = run.text or "[?]", hls = nhls, target = run.target or target }
     elseif run.children then
       local hl = style_hl[run.kind]
       local nhls = hl and { hl } or {}
@@ -258,6 +285,7 @@ end
 ---@field plan MDEyeRenderPlan
 ---@field measure fun(s: string): integer
 ---@field tab_width integer
+---@field code_wrap boolean
 local Ctx = {}
 Ctx.__index = Ctx
 
@@ -368,6 +396,46 @@ local function render_paragraph(ctx, block, prefix, avail)
 end
 
 ---@param ctx MDEyeLayoutCtx
+---@param block MDEyeBlock
+---@param prefix MDEyeFrag[]
+---@param avail integer
+local function render_footnote(ctx, block, prefix, avail)
+  local marker = ("%d. "):format(block.attrs.ordinal)
+  local marker_width = ctx.measure(marker)
+  local first_prefix = vim.list_slice(prefix)
+  first_prefix[#first_prefix + 1] = frag(marker, { "MDEyeFootnote" })
+  local continuation = vim.list_slice(prefix)
+  continuation[#continuation + 1] = frag(string.rep(" ", marker_width))
+  local lines = wrap_runs(block.runs, avail - marker_width, ctx.measure)
+
+  local first, last
+  ctx.pending_first_prefix = first_prefix
+  for _, lfrags in ipairs(lines) do
+    local row = ctx:emit(continuation, lfrags)
+    first = first or row
+    last = row
+  end
+  if block.blocks and #block.blocks > 0 then
+    if first then
+      ctx:emit(continuation, nil)
+    end
+    local before = #ctx.plan.lines
+    render_blocks(ctx, block.blocks, continuation, avail - marker_width)
+    if #ctx.plan.lines > before then
+      first = first or before
+      last = #ctx.plan.lines - 1
+    end
+  end
+  if not first then
+    first = ctx:emit(continuation, {})
+    last = first
+  end
+  ctx.pending_first_prefix = nil
+  ctx:register_block(block.source, first, last)
+  ctx.plan.anchors[block.attrs.anchor] = { row = first, source = block.source }
+end
+
+---@param ctx MDEyeLayoutCtx
 local function render_heading(ctx, block, prefix, avail)
   local level = block.attrs.level
   local hl = "MDEyeHeading" .. level
@@ -386,6 +454,15 @@ local function render_heading(ctx, block, prefix, avail)
   end
   if first then
     ctx:register_block(block.source, first, last)
+    local heading = {
+      row = first,
+      level = level,
+      title = block.attrs.title,
+      anchor = block.attrs.anchor,
+      source = block.source,
+    }
+    ctx.plan.headings[#ctx.plan.headings + 1] = heading
+    ctx.plan.anchors[heading.anchor] = heading
   end
 end
 
@@ -393,6 +470,52 @@ end
 local function render_rule(ctx, block, prefix, avail)
   local row = ctx:emit(prefix, { frag(("─"):rep(avail), { "MDEyeMuted" }) })
   ctx:register_block(block.source, row, row)
+end
+
+---@param line string
+---@param col integer
+---@param expand string
+---@return integer
+local function expanded_byte_col(line, col, expand)
+  return #(line:sub(1, col):gsub("\t", expand))
+end
+
+---@param text string
+---@param avail integer
+---@param measure fun(s: string): integer
+---@param wrap boolean
+---@return { text: string, start_col: integer, end_col: integer }[]
+local function code_chunks(text, avail, measure, wrap)
+  if not wrap or measure(text) <= avail then
+    return { { text = text, start_col = 0, end_col = #text } }
+  end
+
+  local chunks = {}
+  local parts = {}
+  local start_col, byte_col, cells = 0, 0, 0
+  local function flush()
+    chunks[#chunks + 1] = {
+      text = table.concat(parts),
+      start_col = start_col,
+      end_col = byte_col,
+    }
+    parts = {}
+    start_col = byte_col
+    cells = 0
+  end
+  for _, ch in ipairs(vim.fn.split(text, "\\zs")) do
+    local width = measure(ch)
+    if cells > 0 and cells + width > avail then
+      flush()
+    end
+    parts[#parts + 1] = ch
+    byte_col = byte_col + #ch
+    cells = cells + width
+  end
+  if #parts > 0 or #chunks == 0 then
+    flush()
+  end
+  return chunks
 end
 
 ---@param ctx MDEyeLayoutCtx
@@ -409,23 +532,61 @@ local function render_code(ctx, block, prefix, avail)
     last = row
   end
   local expand = string.rep(" ", ctx.tab_width)
-  for _, line in ipairs(block.attrs.lines) do
-    local text = " " .. line:gsub("\t", expand)
-    local w = ctx.measure(text)
-    if w < avail then
-      text = text .. string.rep(" ", avail - w)
+  for index, line in ipairs(block.attrs.lines) do
+    local expanded = line:gsub("\t", expand)
+    for _, chunk in
+      ipairs(code_chunks(expanded, math.max(avail - 1, 1), ctx.measure, ctx.code_wrap))
+    do
+      local text = " " .. chunk.text
+      local w = ctx.measure(text)
+      if w < avail then
+        text = text .. string.rep(" ", avail - w)
+      end
+      local code_frag = frag(text)
+      code_frag.keep = true
+      local row = ctx:emit(prefix, { code_frag })
+      ctx:block_mark(row, "MDEyeCodeBlock")
+
+      local generated = ctx.plan.lines[row + 1]
+      local text_start = #generated - #text
+      for _, capture in ipairs(block.attrs.highlights or {}) do
+        if capture.row == index - 1 then
+          local capture_start = expanded_byte_col(line, capture.start_col, expand)
+          local capture_end = expanded_byte_col(line, capture.end_col, expand)
+          local start_col = math.max(capture_start, chunk.start_col)
+          local end_col = math.min(capture_end, chunk.end_col)
+          if start_col < end_col then
+            ctx.plan.marks[#ctx.plan.marks + 1] = {
+              row = row,
+              start_col = text_start + 1 + start_col - chunk.start_col,
+              end_col = text_start + 1 + end_col - chunk.start_col,
+              hl = "@" .. capture.capture .. "." .. block.attrs.highlight_lang,
+              priority = capture.priority or (PRIORITY_CODE + capture.order),
+            }
+          end
+        end
+      end
+
+      first = first or row
+      last = row
     end
-    local code_frag = frag(text)
-    code_frag.keep = true
-    local row = ctx:emit(prefix, { code_frag })
+  end
+  if #block.attrs.lines == 0 then
+    local empty = frag(string.rep(" ", avail))
+    empty.keep = true
+    local row = ctx:emit(prefix, { empty })
     ctx:block_mark(row, "MDEyeCodeBlock")
     first = first or row
     last = row
   end
-  if #block.attrs.lines == 0 and not first then
-    return
-  end
   ctx:register_block(block.source, first, last)
+  ctx.plan.code_blocks[#ctx.plan.code_blocks + 1] = {
+    row_start = first,
+    row_end = last,
+    source = block.source,
+    lines = vim.deepcopy(block.attrs.lines),
+    lang = block.attrs.lang,
+  }
 end
 
 ---@param ctx MDEyeLayoutCtx
@@ -686,6 +847,7 @@ end
 
 local renderers = {
   paragraph = render_paragraph,
+  footnote = render_footnote,
   heading = render_heading,
   rule = render_rule,
   code = render_code,
@@ -758,6 +920,9 @@ function M.plan(doc, opts)
     lines = {},
     marks = {},
     blocks = {},
+    headings = {},
+    anchors = {},
+    code_blocks = {},
     width = width,
     margin = margin,
   }
@@ -765,6 +930,7 @@ function M.plan(doc, opts)
     plan = plan,
     measure = measure,
     tab_width = opts.tab_width or 4,
+    code_wrap = opts.code_wrap == true,
   }, Ctx)
 
   ctx:emit({}, nil) -- top padding

@@ -18,10 +18,11 @@ local M = {}
 ---@field end_row integer 0-based, inclusive
 
 ---@class MDEyeInline
----@field kind "text"|"emphasis"|"strong"|"strike"|"code"|"link"|"image"|"break"
+---@field kind "text"|"emphasis"|"strong"|"strike"|"code"|"link"|"image"|"footnote"|"break"
 ---@field text string|nil normalized display text (leaf kinds)
 ---@field source MDEyeSourceSpan
----@field target string|nil link/image destination as written in the source
+---@field target string|nil link/image/footnote destination
+---@field label string|nil normalized footnote label
 ---@field children MDEyeInline[]|nil container kinds
 
 ---@class MDEyeListItem
@@ -33,23 +34,61 @@ local M = {}
 ---@field runs MDEyeInline[]
 ---@field source MDEyeSourceSpan
 
+---@class MDEyeCodeCapture
+---@field row integer 0-based row inside the fenced content
+---@field start_col integer byte column, inclusive
+---@field end_col integer byte column, exclusive
+---@field capture string Tree-sitter capture name
+---@field order integer query capture order
+---@field priority integer|nil priority supplied by query metadata
+
+---@class MDEyeBlockAttrs
+---@field level integer|nil heading
+---@field title string|nil heading
+---@field anchor string|nil heading/footnote
+---@field ordered boolean|nil list
+---@field start integer|nil list start number
+---@field lang string|nil code fence label
+---@field lines string[]|nil code/html content
+---@field highlights MDEyeCodeCapture[]|nil code syntax captures
+---@field highlight_lang string|nil resolved code parser language
+---@field header MDEyeTableRow|nil table header
+---@field rows MDEyeTableRow[]|nil table body
+---@field aligns string[]|nil table alignments
+---@field label string|nil footnote label
+---@field ordinal integer|nil footnote number
+
 ---@class MDEyeBlock
----@field kind "heading"|"paragraph"|"list"|"quote"|"code"|"table"|"rule"|"html"
+---@field kind "heading"|"paragraph"|"list"|"quote"|"code"|"table"|"rule"|"html"|"footnote"
 ---@field source MDEyeSourceSpan
----@field runs MDEyeInline[]|nil heading, paragraph
+---@field runs MDEyeInline[]|nil heading, paragraph, footnote
 ---@field items MDEyeListItem[]|nil list
----@field blocks MDEyeBlock[]|nil quote
----@field attrs table
+---@field blocks MDEyeBlock[]|nil quote or continued footnote content
+---@field attrs MDEyeBlockAttrs
+
+---@class MDEyeCodeLanguageStatus
+---@field highlight_lang string|nil resolved parser language; nil means plain-text fallback
 
 ---@class MDEyeDocument
 ---@field blocks MDEyeBlock[]
+---@field anchors table<string, MDEyeSourceSpan>
+---@field code_languages table<string, MDEyeCodeLanguageStatus>
 
 ---Parse state shared by the conversion walk.
+---@class MDEyeFootnoteDef
+---@field label string normalized label
+---@field anchor string
+---@field content_start integer
+---@field ordinal integer|nil
+
 ---@class MDEyeParseCtx
 ---@field src string full source text
 ---@field line_offsets integer[] byte offset of the start of each 0-based row
 ---@field inline_index table<string, {root: TSNode, ranges: integer[][]}>
 ---@field refs table<string, string> normalized reference label -> destination
+---@field footnotes table<string, MDEyeFootnoteDef>
+---@field footnote_nodes table<integer, MDEyeFootnoteDef> paragraph start byte -> definition
+---@field next_footnote integer
 
 local function span_from_node(node)
   local sr, _, sb = node:start()
@@ -129,6 +168,72 @@ local function normalize_ref_label(label)
   return (label:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", ""):lower())
 end
 
+---Generate the same practical anchor shape used by GitHub Markdown headings:
+---lowercase text, ASCII punctuation removed, and whitespace replaced by `-`.
+---Non-ASCII letters are retained so translated documents remain linkable.
+---@param text string
+---@return string
+function M.slug(text)
+  local out = {}
+  text = vim.fn.tolower(vim.trim(text))
+  for _, ch in ipairs(vim.fn.split(text, "\\zs")) do
+    local byte = ch:byte()
+    if not byte or byte >= 128 or ch:match("^[%w_ %-]$") then
+      out[#out + 1] = ch
+    end
+  end
+  local slug = table.concat(out):gsub("%s+", "-")
+  return slug ~= "" and slug or "section"
+end
+
+---Normalize an href fragment before looking it up in a render plan.
+---@param fragment string
+---@return string
+function M.normalize_anchor(fragment)
+  fragment = fragment:gsub("^#", "")
+  fragment = fragment:gsub("%%(%x%x)", function(hex)
+    return string.char(tonumber(hex, 16))
+  end)
+  return vim.fn.tolower(fragment)
+end
+
+---Resolve a fragment to the exact anchor id used by a document or render plan.
+---@param anchors table<string, unknown>
+---@param fragment string
+---@return string|nil
+function M.anchor_id(anchors, fragment)
+  local id = M.normalize_anchor(fragment)
+  if anchors[id] then
+    return id
+  end
+  local slug = M.slug(id)
+  return anchors[slug] and slug or nil
+end
+
+---@param anchors table<string, unknown>
+---@param base string
+---@return string
+local function allocate_anchor(anchors, base)
+  local anchor = base
+  local suffix = 1
+  while anchors[anchor] do
+    anchor = base .. "-" .. suffix
+    suffix = suffix + 1
+  end
+  return anchor
+end
+
+---@param ctx MDEyeParseCtx
+---@param def MDEyeFootnoteDef
+---@return integer
+local function ensure_footnote_ordinal(ctx, def)
+  if not def.ordinal then
+    def.ordinal = ctx.next_footnote
+    ctx.next_footnote = ctx.next_footnote + 1
+  end
+  return def.ordinal
+end
+
 local inline_converters
 
 ---Append a plain text run unless empty.
@@ -137,6 +242,22 @@ local function push_text(ctx, out, sb, eb, ranges)
   if text ~= "" then
     out[#out + 1] = { kind = "text", text = text, source = span_from_bytes(ctx, sb, eb) }
   end
+end
+
+---@param sb integer
+---@param eb integer
+---@param ranges integer[][]|nil
+---@return boolean
+local function intersects_ranges(sb, eb, ranges)
+  if not ranges then
+    return true
+  end
+  for _, range in ipairs(ranges) do
+    if math.max(sb, range[1]) < math.min(eb, range[2]) then
+      return true
+    end
+  end
+  return false
 end
 
 ---Convert the children of an inline container node, keeping the raw text of
@@ -158,12 +279,14 @@ local function convert_inline_children(ctx, node, ranges)
       if csb > pos then
         push_text(ctx, out, pos, csb, ranges)
       end
-      local converter = inline_converters[child:type()]
-      if converter then
-        converter(ctx, child, ranges, out)
-      else
-        -- Unknown constructs stay readable as plain text.
-        push_text(ctx, out, csb, ceb, ranges)
+      if intersects_ranges(csb, ceb, ranges) then
+        local converter = inline_converters[child:type()]
+        if converter then
+          converter(ctx, child, ranges, out)
+        else
+          -- Unknown constructs stay readable as plain text.
+          push_text(ctx, out, csb, ceb, ranges)
+        end
       end
       pos = math.max(pos, ceb)
     end
@@ -188,9 +311,8 @@ local function container(kind)
   end
 end
 
----@param ctx MDEyeParseCtx
 ---@param node TSNode
----@param field string
+---@param ... string
 ---@return TSNode|nil
 local function child_of_type(node, ...)
   local wanted = { ... }
@@ -220,6 +342,47 @@ local function link_target_from_ref(ctx, node, ranges)
     end
   end
   return key and ctx.refs[key] or nil
+end
+
+---@param ctx MDEyeParseCtx
+---@param node TSNode
+---@param ranges integer[][]|nil
+---@param out MDEyeInline[]
+local function convert_reference_link(ctx, node, ranges, out)
+  local text = child_of_type(node, "link_text")
+  if text then
+    local _, _, sb = text:start()
+    local _, _, eb = text:end_()
+    local label = extract(ctx, sb, eb, ranges)
+    if label:sub(1, 1) == "^" then
+      local def = ctx.footnotes[normalize_ref_label(label:sub(2))]
+      if def then
+        local ordinal = ensure_footnote_ordinal(ctx, def)
+        out[#out + 1] = {
+          kind = "footnote",
+          text = ("[%d]"):format(ordinal),
+          target = "#" .. def.anchor,
+          label = def.label,
+          source = span_from_node(node),
+        }
+      else
+        out[#out + 1] = {
+          kind = "text",
+          text = "[" .. label .. "]",
+          source = span_from_node(node),
+        }
+      end
+      return
+    end
+  end
+
+  local children = text and convert_inline_children(ctx, text, ranges) or {}
+  out[#out + 1] = {
+    kind = "link",
+    children = children,
+    target = link_target_from_ref(ctx, node, ranges),
+    source = span_from_node(node),
+  }
 end
 
 inline_converters = {
@@ -255,16 +418,7 @@ inline_converters = {
       { kind = "link", children = children, target = target, source = span_from_node(node) }
   end,
 
-  full_reference_link = function(ctx, node, ranges, out)
-    local text = child_of_type(node, "link_text")
-    local children = text and convert_inline_children(ctx, text, ranges) or {}
-    out[#out + 1] = {
-      kind = "link",
-      children = children,
-      target = link_target_from_ref(ctx, node, ranges),
-      source = span_from_node(node),
-    }
-  end,
+  full_reference_link = convert_reference_link,
 
   uri_autolink = function(ctx, node, ranges, out)
     local _, _, sb = node:start()
@@ -374,6 +528,35 @@ local function convert_inline(ctx, node)
   return out
 end
 
+---Convert only [start_byte, end_byte) of a block inline node. Footnote
+---definitions use this to omit `[^label]:` while retaining ordinary inline
+---styling in the definition body.
+---@param ctx MDEyeParseCtx
+---@param node TSNode|nil
+---@param start_byte integer
+---@param end_byte integer
+---@return MDEyeInline[]
+local function convert_inline_range(ctx, node, start_byte, end_byte)
+  if not node then
+    return {}
+  end
+  local injected = injected_for(ctx, node)
+  if not injected then
+    local out = {}
+    push_text(ctx, out, start_byte, end_byte, nil)
+    return out
+  end
+  local ranges = {}
+  for _, range in ipairs(injected.ranges or { { start_byte, end_byte } }) do
+    local sb = math.max(start_byte, range[1])
+    local eb = math.min(end_byte, range[2])
+    if sb < eb then
+      ranges[#ranges + 1] = { sb, eb }
+    end
+  end
+  return convert_inline_children(ctx, injected.root, ranges)
+end
+
 local convert_blocks
 
 local heading_levels = {
@@ -452,6 +635,90 @@ local function convert_list(ctx, node)
   }
 end
 
+local code_language_aliases = {
+  cjs = "javascript",
+  js = "javascript",
+  jsx = "javascript",
+  mjs = "javascript",
+  py = "python",
+  rb = "ruby",
+  sh = "bash",
+  shell = "bash",
+  ts = "typescript",
+  yml = "yaml",
+  ["c++"] = "cpp",
+  ["c#"] = "c_sharp",
+}
+
+local code_query_cache = {}
+
+---Parse fenced content with its language parser and normalize highlight
+---captures into line-local byte ranges. Missing parsers/queries deliberately
+---return an empty list: fenced text remains fully readable.
+---@param lines string[]
+---@param label string|nil
+---@return MDEyeCodeCapture[] highlights
+---@return string|nil language
+local function code_highlights(lines, label)
+  if not label or label == "" or #lines == 0 then
+    return {}, nil
+  end
+  local raw = label:lower()
+  local lang = code_language_aliases[raw] or raw
+  local code = table.concat(lines, "\n")
+  local ok_parser, parser = pcall(vim.treesitter.get_string_parser, code, lang)
+  if not ok_parser or not parser then
+    return {}, nil
+  end
+
+  local query = code_query_cache[lang]
+  if query == nil then
+    local ok_query
+    ok_query, query = pcall(vim.treesitter.query.get, lang, "highlights")
+    if not ok_query or not query then
+      return {}, nil
+    end
+    code_query_cache[lang] = query
+  end
+
+  local ok, highlights = pcall(function()
+    local trees = parser:parse()
+    if not trees or not trees[1] then
+      return {}
+    end
+    local out = {}
+    local sequence = 0
+    for id, capture, metadata in query:iter_captures(trees[1]:root(), code, 0, -1) do
+      local name = query.captures[id]
+      if name and name:sub(1, 1) ~= "_" then
+        local sr, sc, er, ec = capture:range()
+        sequence = sequence + 1
+        local capture_metadata = metadata and (metadata[id] or metadata) or {}
+        local priority = tonumber(capture_metadata.priority)
+        for row = sr, er do
+          local line = lines[row + 1]
+          if line then
+            local start_col = row == sr and sc or 0
+            local end_col = row == er and ec or #line
+            if start_col < end_col then
+              out[#out + 1] = {
+                row = row,
+                start_col = start_col,
+                end_col = end_col,
+                capture = name,
+                order = sequence,
+                priority = priority,
+              }
+            end
+          end
+        end
+      end
+    end
+    return out
+  end)
+  return ok and highlights or {}, ok and lang or nil
+end
+
 ---@param ctx MDEyeParseCtx
 ---@param node TSNode
 ---@return MDEyeBlock
@@ -492,9 +759,15 @@ local function convert_code(ctx, node)
       end
     end
   end
+  local highlights, highlight_lang = code_highlights(lines, lang)
   return {
     kind = "code",
-    attrs = { lang = lang, lines = lines },
+    attrs = {
+      lang = lang,
+      lines = lines,
+      highlights = highlights,
+      highlight_lang = highlight_lang,
+    },
     source = span_from_node(node),
   }
 end
@@ -515,7 +788,7 @@ local function convert_indented_code(ctx, node)
   end
   return {
     kind = "code",
-    attrs = { lang = nil, lines = lines },
+    attrs = { lang = nil, lines = lines, highlights = {}, highlight_lang = nil },
     source = span_from_node(node),
   }
 end
@@ -601,6 +874,40 @@ local function convert_html_block(ctx, node)
   return { kind = "html", attrs = { lines = lines }, source = span_from_node(node) }
 end
 
+---The bundled Markdown grammar treats GFM footnotes as ordinary shortcut
+---links and paragraphs. Recognize definition paragraphs up front so inline
+---conversion can resolve references regardless of source order.
+---@param ctx MDEyeParseCtx
+---@param node TSNode
+local function collect_footnotes(ctx, node)
+  local node_type = node:type()
+  if node_type == "paragraph" or node_type == "link_reference_definition" then
+    local _, _, sb = node:start()
+    local _, _, eb = node:end_()
+    local raw = extract(ctx, sb, eb, nil)
+    local _, prefix_end, label = raw:find("^%[%^([^%]]+)%]:[ \t]*")
+    if label then
+      local key = normalize_ref_label(label)
+      local def = ctx.footnotes[key]
+      if not def then
+        def = {
+          label = key,
+          anchor = "fn-" .. M.slug(key),
+          content_start = sb + prefix_end,
+        }
+        ctx.footnotes[key] = def
+      end
+      ctx.footnote_nodes[sb] = def
+    end
+    return
+  end
+  for child in node:iter_children() do
+    if child:named() then
+      collect_footnotes(ctx, child)
+    end
+  end
+end
+
 ---Collect reference-link definitions up front so reference links resolve
 ---regardless of definition position.
 ---@param ctx MDEyeParseCtx
@@ -627,6 +934,202 @@ local function collect_refs(ctx, node)
 end
 
 ---@param ctx MDEyeParseCtx
+---@param node TSNode
+---@param footnote MDEyeFootnoteDef
+---@return MDEyeBlock
+local function convert_footnote_definition(ctx, node, footnote)
+  local span = span_from_node(node)
+  local inline = child_of_type(node, "inline")
+  local runs
+  if inline then
+    runs = convert_inline_range(ctx, inline, footnote.content_start, span.end_byte)
+  else
+    local content_end = span.end_byte
+    while content_end > footnote.content_start do
+      local last = ctx.src:sub(content_end, content_end)
+      if last ~= "\n" and last ~= "\r" then
+        break
+      end
+      content_end = content_end - 1
+    end
+    runs = {}
+    push_text(ctx, runs, footnote.content_start, content_end, nil)
+  end
+  return {
+    kind = "footnote",
+    runs = runs,
+    attrs = {
+      label = footnote.label,
+      ordinal = footnote.ordinal,
+      anchor = footnote.anchor,
+    },
+    source = span,
+  }
+end
+
+---@param runs MDEyeInline[]
+---@param rebase fun(span: MDEyeSourceSpan)
+local function rebase_inline_sources(runs, rebase)
+  for _, run in ipairs(runs) do
+    rebase(run.source)
+    if run.children then
+      rebase_inline_sources(run.children, rebase)
+    end
+  end
+end
+
+local rebase_block_sources
+
+---@param row MDEyeTableRow
+---@param rebase fun(span: MDEyeSourceSpan)
+local function rebase_table_row_sources(row, rebase)
+  rebase(row.source)
+  for _, cell in ipairs(row.cells) do
+    rebase(cell.source)
+    rebase_inline_sources(cell.runs, rebase)
+  end
+end
+
+---@param blocks MDEyeBlock[]
+---@param rebase fun(span: MDEyeSourceSpan)
+rebase_block_sources = function(blocks, rebase)
+  for _, block in ipairs(blocks) do
+    rebase(block.source)
+    if block.runs then
+      rebase_inline_sources(block.runs, rebase)
+    end
+    if block.blocks then
+      rebase_block_sources(block.blocks, rebase)
+    end
+    for _, item in ipairs(block.items or {}) do
+      rebase(item.source)
+      rebase_block_sources(item.blocks, rebase)
+    end
+    if block.attrs.header then
+      rebase_table_row_sources(block.attrs.header, rebase)
+    end
+    for _, row in ipairs(block.attrs.rows or {}) do
+      rebase_table_row_sources(row, rebase)
+    end
+  end
+end
+
+---Parse an indented footnote continuation as ordinary Markdown, then map its
+---semantic blocks back onto the original source coordinates.
+---@param ctx MDEyeParseCtx
+---@param span MDEyeSourceSpan
+---@return MDEyeBlock[]
+local function parse_footnote_continuation(ctx, span)
+  local raw = extract(ctx, span.start_byte, span.end_byte, nil)
+  local raw_lines = vim.split(raw, "\n", { plain = true })
+  if raw_lines[#raw_lines] == "" then
+    raw_lines[#raw_lines] = nil
+  end
+
+  local lines, raw_offsets, local_offsets, indents = {}, {}, {}, {}
+  local raw_offset, local_offset = 0, 0
+  for index, line in ipairs(raw_lines) do
+    local indent = line:sub(1, 4) == "    " and 4 or (line:sub(1, 1) == "\t" and 1 or 0)
+    local stripped = line:sub(indent + 1)
+    lines[index] = stripped
+    raw_offsets[index] = raw_offset
+    local_offsets[index] = local_offset
+    indents[index] = indent
+    raw_offset = raw_offset + #line + 1
+    local_offset = local_offset + #stripped + 1
+  end
+  if #lines == 0 then
+    return {}
+  end
+
+  local content_line_count = #lines
+  local fallback = {
+    kind = "paragraph",
+    runs = {
+      {
+        kind = "text",
+        text = table.concat(lines, "\n"),
+        source = vim.deepcopy(span),
+      },
+    },
+    attrs = {},
+    source = vim.deepcopy(span),
+  }
+  local labels = vim.tbl_keys(ctx.refs)
+  table.sort(labels)
+  if #labels > 0 then
+    lines[#lines + 1] = ""
+    for _, label in ipairs(labels) do
+      lines[#lines + 1] = ("[%s]: %s"):format(label, ctx.refs[label])
+    end
+  end
+
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  local parsed
+  local ok = pcall(function()
+    parsed = M.parse(bufnr)
+  end)
+  pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+  if not ok or not parsed then
+    return { fallback }
+  end
+
+  local blocks = {}
+  for _, block in ipairs(parsed.blocks) do
+    if block.source.start_row < content_line_count then
+      blocks[#blocks + 1] = block
+    end
+  end
+
+  local function row_for_byte(byte)
+    local lo, hi = 1, #local_offsets
+    while lo < hi do
+      local mid = math.ceil((lo + hi) / 2)
+      if local_offsets[mid] <= byte then
+        lo = mid
+      else
+        hi = mid - 1
+      end
+    end
+    return lo
+  end
+
+  local function original_byte(byte)
+    local row = row_for_byte(byte)
+    local col = math.max(byte - local_offsets[row], 0)
+    return span.start_byte + raw_offsets[row] + indents[row] + col
+  end
+
+  local function original_end_byte(byte)
+    local row = row_for_byte(byte)
+    if row > 1 and byte == local_offsets[row] then
+      return span.start_byte + raw_offsets[row]
+    end
+    return original_byte(byte)
+  end
+
+  rebase_block_sources(blocks, function(source)
+    source.start_byte = original_byte(source.start_byte)
+    source.end_byte = original_end_byte(source.end_byte)
+    source.start_row = span.start_row + source.start_row
+    source.end_row = span.start_row + source.end_row
+  end)
+  return #blocks > 0 and blocks or { fallback }
+end
+
+---@param ctx MDEyeParseCtx
+---@param footnote MDEyeBlock
+---@param node TSNode
+local function append_footnote_continuation(ctx, footnote, node)
+  local span = span_from_node(node)
+  footnote.blocks = footnote.blocks or {}
+  vim.list_extend(footnote.blocks, parse_footnote_continuation(ctx, span))
+  footnote.source.end_byte = span.end_byte
+  footnote.source.end_row = span.end_row
+end
+
+---@param ctx MDEyeParseCtx
 ---@param node TSNode container (document, section, list_item, block_quote)
 ---@param out MDEyeBlock[]
 convert_blocks = function(ctx, node, out)
@@ -636,13 +1139,19 @@ convert_blocks = function(ctx, node, out)
       convert_blocks(ctx, child, out)
     elseif t == "atx_heading" or t == "setext_heading" then
       out[#out + 1] = convert_heading(ctx, child)
-    elseif t == "paragraph" then
-      out[#out + 1] = {
-        kind = "paragraph",
-        runs = convert_inline(ctx, child_of_type(child, "inline")),
-        attrs = {},
-        source = span_from_node(child),
-      }
+    elseif t == "paragraph" or t == "link_reference_definition" then
+      local _, _, sb = child:start()
+      local footnote = ctx.footnote_nodes[sb]
+      if footnote then
+        out[#out + 1] = convert_footnote_definition(ctx, child, footnote)
+      elseif t == "paragraph" then
+        out[#out + 1] = {
+          kind = "paragraph",
+          runs = convert_inline(ctx, child_of_type(child, "inline")),
+          attrs = {},
+          source = span_from_node(child),
+        }
+      end
     elseif t == "list" then
       out[#out + 1] = convert_list(ctx, child)
     elseif t == "block_quote" then
@@ -653,7 +1162,13 @@ convert_blocks = function(ctx, node, out)
     elseif t == "fenced_code_block" then
       out[#out + 1] = convert_code(ctx, child)
     elseif t == "indented_code_block" then
-      out[#out + 1] = convert_indented_code(ctx, child)
+      local previous = out[#out]
+      local start_row = child:start()
+      if previous and previous.kind == "footnote" and start_row - previous.source.end_row <= 2 then
+        append_footnote_continuation(ctx, previous, child)
+      else
+        out[#out + 1] = convert_indented_code(ctx, child)
+      end
     elseif t == "pipe_table" then
       out[#out + 1] = convert_table(ctx, child)
     elseif t == "thematic_break" then
@@ -666,6 +1181,156 @@ convert_blocks = function(ctx, node, out)
     end
     -- link_reference_definition, markers, metadata, continuations: no output.
   end
+end
+
+---@param runs MDEyeInline[]|nil
+---@return string
+local function inline_text(runs)
+  local parts = {}
+  for _, run in ipairs(runs or {}) do
+    if run.kind == "break" then
+      parts[#parts + 1] = " "
+    elseif run.text then
+      parts[#parts + 1] = run.text
+    end
+    if run.children then
+      parts[#parts + 1] = inline_text(run.children)
+    end
+  end
+  return table.concat(parts)
+end
+
+---@param blocks MDEyeBlock[]
+---@param visit fun(block: MDEyeBlock)
+local function walk_blocks(blocks, visit)
+  for _, block in ipairs(blocks) do
+    visit(block)
+    if block.blocks then
+      walk_blocks(block.blocks, visit)
+    elseif block.items then
+      for _, item in ipairs(block.items) do
+        walk_blocks(item.blocks, visit)
+      end
+    end
+  end
+end
+
+---@param blocks MDEyeBlock[]
+---@param anchors table<string, MDEyeSourceSpan>
+local function assign_heading_anchors(blocks, anchors)
+  walk_blocks(blocks, function(block)
+    if block.kind ~= "heading" then
+      return
+    end
+    local title = vim.trim(inline_text(block.runs):gsub("%s+", " "))
+    local base = M.slug(title)
+    local anchor = allocate_anchor(anchors, base)
+    block.attrs.title = title
+    block.attrs.anchor = anchor
+    anchors[anchor] = block.source
+  end)
+end
+
+---@param blocks MDEyeBlock[]
+---@param ctx MDEyeParseCtx
+---@param anchors table<string, MDEyeSourceSpan>
+local function finalize_footnotes(blocks, ctx, anchors)
+  walk_blocks(blocks, function(block)
+    if block.kind ~= "footnote" then
+      return
+    end
+    local def = ctx.footnotes[block.attrs.label]
+    block.attrs.ordinal = ensure_footnote_ordinal(ctx, def)
+    local anchor = allocate_anchor(anchors, def.anchor)
+    def.anchor = anchor
+    block.attrs.anchor = anchor
+    anchors[anchor] = block.source
+  end)
+end
+
+---@param blocks MDEyeBlock[]
+---@return table<string, MDEyeCodeLanguageStatus>
+local function collect_code_languages(blocks)
+  local languages = {}
+  walk_blocks(blocks, function(block)
+    if block.kind == "code" and block.attrs.lang then
+      local label = block.attrs.lang
+      local status = languages[label] or {}
+      status.highlight_lang = status.highlight_lang or block.attrs.highlight_lang
+      languages[label] = status
+    end
+  end)
+  return languages
+end
+
+---@param runs MDEyeInline[]
+---@param ctx MDEyeParseCtx
+local function update_footnote_runs(runs, ctx)
+  for _, run in ipairs(runs) do
+    if run.kind == "footnote" and run.label then
+      run.target = "#" .. ctx.footnotes[run.label].anchor
+    end
+    if run.children then
+      update_footnote_runs(run.children, ctx)
+    end
+  end
+end
+
+---@param blocks MDEyeBlock[]
+---@param ctx MDEyeParseCtx
+local function update_footnote_targets(blocks, ctx)
+  walk_blocks(blocks, function(block)
+    if block.runs then
+      update_footnote_runs(block.runs, ctx)
+    end
+    if block.kind == "table" then
+      local rows = {}
+      if block.attrs.header then
+        rows[#rows + 1] = block.attrs.header
+      end
+      vim.list_extend(rows, block.attrs.rows)
+      for _, row in ipairs(rows) do
+        for _, cell in ipairs(row.cells) do
+          update_footnote_runs(cell.runs, ctx)
+        end
+      end
+    end
+  end)
+end
+
+---@class MDEyeParserDiagnostics
+---@field parsers table<string, boolean>
+---@field table_injection boolean|nil
+---@field error string|nil
+
+---Inspect the Markdown parser stack. Keeping this here preserves the rule
+---that Tree-sitter is only accessed through document.lua.
+---@return MDEyeParserDiagnostics
+function M.parser_diagnostics()
+  local result = { parsers = {} }
+  for _, lang in ipairs({ "markdown", "markdown_inline" }) do
+    local ok, loaded = pcall(vim.treesitter.language.add, lang)
+    result.parsers[lang] = ok and loaded == true
+  end
+  if not result.parsers.markdown or not result.parsers.markdown_inline then
+    return result
+  end
+
+  local sample = "| a |\n| - |\n| b |\n"
+  local ok, parser = pcall(vim.treesitter.get_string_parser, sample, "markdown")
+  if not ok or not parser then
+    result.error = "could not create a markdown string parser"
+    return result
+  end
+  parser:parse(true)
+  local inline = parser:children()["markdown_inline"]
+  local regions = inline and inline:included_regions() or {}
+  local count = 0
+  for _, region in pairs(regions) do
+    count = count + #region
+  end
+  result.table_injection = count >= 2
+  return result
 end
 
 ---Parse a Markdown buffer into the semantic document model.
@@ -703,6 +1368,9 @@ function M.parse(bufnr)
     line_offsets = line_offsets,
     inline_index = {},
     refs = {},
+    footnotes = {},
+    footnote_nodes = {},
+    next_footnote = 1,
   }
 
   local inline_ltree = parser:children()["markdown_inline"]
@@ -722,11 +1390,21 @@ function M.parse(bufnr)
   end
 
   local root = trees[1]:root()
+  collect_footnotes(ctx, root)
   collect_refs(ctx, root)
 
   local blocks = {}
   convert_blocks(ctx, root, blocks)
-  return { blocks = blocks }, nil
+  local anchors = {}
+  assign_heading_anchors(blocks, anchors)
+  finalize_footnotes(blocks, ctx, anchors)
+  update_footnote_targets(blocks, ctx)
+  return {
+    blocks = blocks,
+    anchors = anchors,
+    code_languages = collect_code_languages(blocks),
+  },
+    nil
 end
 
 return M

@@ -208,6 +208,7 @@ local function update(session, opts)
     usable_width = usable,
     max_width = cfg.max_width,
     min_margin = cfg.min_margin,
+    code_wrap = cfg.code.wrap,
   })
 
   local anchor = (opts and opts.anchor) and capture_anchor(session) or nil
@@ -317,6 +318,153 @@ local function link_at(session, row, col)
   return nil
 end
 
+---@param session MDEyeSession
+---@param row integer
+---@return boolean
+local function move_to_preview_row(session, row)
+  if not session.plan or not owner_usable_width(session) then
+    return false
+  end
+  local last = vim.api.nvim_buf_line_count(session.preview_buf)
+  row = math.max(0, math.min(row, last - 1))
+  vim.api.nvim_win_set_cursor(session.owner_win, { row + 1, 0 })
+  vim.api.nvim_win_call(session.owner_win, function()
+    vim.cmd("normal! zt")
+  end)
+  return true
+end
+
+---@param session MDEyeSession
+---@param fragment string
+---@return boolean
+local function jump_to_anchor(session, fragment)
+  if not session.plan then
+    return false
+  end
+  local id = document.anchor_id(session.plan.anchors, fragment)
+  local anchor = id and session.plan.anchors[id] or nil
+  return anchor ~= nil and move_to_preview_row(session, anchor.row)
+end
+
+---@param session MDEyeSession
+---@param direction "next"|"previous"
+local function move_heading(session, direction)
+  if not session.plan or #session.plan.headings == 0 then
+    notify("document has no headings")
+    return
+  end
+  local row = vim.api.nvim_win_get_cursor(session.owner_win)[1] - 1
+  if direction == "next" then
+    for _, heading in ipairs(session.plan.headings) do
+      if heading.row > row then
+        move_to_preview_row(session, heading.row)
+        return
+      end
+    end
+    notify("already at the last heading")
+  else
+    for i = #session.plan.headings, 1, -1 do
+      local heading = session.plan.headings[i]
+      if heading.row < row then
+        move_to_preview_row(session, heading.row)
+        return
+      end
+    end
+    notify("already at the first heading")
+  end
+end
+
+---@param session MDEyeSession
+local function show_outline(session)
+  if not session.plan or #session.plan.headings == 0 then
+    notify("document has no headings")
+    return
+  end
+  vim.ui.select(session.plan.headings, {
+    prompt = "mdeye headings",
+    format_item = function(heading)
+      return string.rep("  ", heading.level - 1) .. heading.title
+    end,
+  }, function(heading)
+    if heading and not session.closed then
+      move_to_preview_row(session, heading.row)
+    end
+  end)
+end
+
+---@param plan MDEyeRenderPlan
+---@param row integer
+---@return MDEyeCodeBlockMap|nil
+local function code_at_preview_row(plan, row)
+  for _, code in ipairs(plan.code_blocks) do
+    if code.row_start <= row and row <= code.row_end then
+      return code
+    end
+  end
+end
+
+---@param plan MDEyeRenderPlan
+---@param byte integer
+---@return MDEyeCodeBlockMap|nil
+local function code_at_source_byte(plan, byte)
+  for _, code in ipairs(plan.code_blocks) do
+    if code.source.start_byte <= byte and byte < code.source.end_byte then
+      return code
+    end
+  end
+end
+
+---Copy the fenced block under the current preview/source cursor.
+---@param selected MDEyeSession|nil mapping callbacks pass their own session
+---@return boolean ok
+function M.copy_code(selected)
+  local cur_buf = vim.api.nvim_get_current_buf()
+  local active = selected or by_preview[cur_buf] or sessions[cur_buf]
+  if not active or active.closed or not active.plan then
+    notify("no preview code block to copy")
+    return false
+  end
+
+  local tick = vim.api.nvim_buf_get_changedtick(active.src_buf)
+  if tick ~= active.rendered_tick and not update(active, { anchor = true }) then
+    notify("could not refresh fenced code before copying", vim.log.levels.ERROR)
+    return false
+  end
+
+  local code
+  if cur_buf == active.preview_buf then
+    code = code_at_preview_row(active.plan, vim.api.nvim_win_get_cursor(0)[1] - 1)
+  elseif cur_buf == active.src_buf then
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local byte = vim.api.nvim_buf_get_offset(active.src_buf, cursor[1] - 1) + cursor[2]
+    code = code_at_source_byte(active.plan, byte)
+  end
+  if not code then
+    notify("cursor is not in a fenced code block")
+    return false
+  end
+
+  local text = table.concat(code.lines, "\n")
+  if #code.lines > 0 then
+    text = text .. "\n"
+  end
+  vim.fn.setreg('"', text)
+  if vim.fn.has("clipboard") == 1 then
+    pcall(vim.fn.setreg, "+", text)
+  end
+  notify(("copied %d code line%s"):format(#code.lines, #code.lines == 1 and "" or "s"))
+  return true
+end
+
+---@param doc MDEyeDocument
+---@param fragment string
+---@return integer|nil
+local function document_anchor_row(doc, fragment)
+  local id = document.anchor_id(doc.anchors, fragment)
+  local span = id and doc.anchors[id] or nil
+  return span and span.start_row or nil
+end
+
 ---Resolve and open a link target. Relative targets resolve against the
 ---source buffer's directory at interaction time, never against Neovim's cwd.
 ---@param session MDEyeSession
@@ -330,16 +478,35 @@ local function open_link(session, target)
   if target:match("^file://") then
     target = target:gsub("^file://", "")
   end
-  local path = target:gsub("#.*$", "")
+
+  local path, fragment = target:match("^([^#]*)#(.*)$")
+  path = path or target
   if path == "" then
-    notify("in-document anchors are not supported yet")
+    if not jump_to_anchor(session, fragment or "") then
+      notify("anchor not found: #" .. (fragment or ""), vim.log.levels.WARN)
+    end
     return
   end
+
+  local src_name = vim.api.nvim_buf_get_name(session.src_buf)
   if not path:match("^/") then
-    local src_name = vim.api.nvim_buf_get_name(session.src_buf)
     local base = src_name ~= "" and vim.fs.dirname(src_name) or vim.fn.getcwd()
     path = vim.fs.normalize(base .. "/" .. path)
+  else
+    path = vim.fs.normalize(path)
   end
+  if
+    fragment
+    and src_name ~= ""
+    and vim.fs.normalize(vim.fn.fnamemodify(src_name, ":p"))
+      == vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
+  then
+    if not jump_to_anchor(session, fragment) then
+      notify("anchor not found: #" .. fragment, vim.log.levels.WARN)
+    end
+    return
+  end
+
   -- Prefer the source window in split mode so the preview stays open.
   local target_win
   if session.mode ~= "current" then
@@ -354,6 +521,17 @@ local function open_link(session, target)
     vim.api.nvim_set_current_win(target_win)
   end
   vim.cmd.edit(vim.fn.fnameescape(path))
+
+  if fragment then
+    local doc = document.parse(vim.api.nvim_get_current_buf())
+    local row = doc and document_anchor_row(doc, fragment)
+    if row then
+      vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
+      vim.cmd("normal! ^")
+    else
+      notify("anchor not found: #" .. fragment, vim.log.levels.WARN)
+    end
+  end
 end
 
 ---Return to the source location for the block at the preview cursor.
@@ -428,6 +606,18 @@ local function install_mappings(session)
       notify("no link under cursor")
     end
   end, vim.tbl_extend("force", opts, { desc = "mdeye: open link" }))
+  vim.keymap.set("n", "]]", function()
+    move_heading(session, "next")
+  end, vim.tbl_extend("force", opts, { desc = "mdeye: next heading" }))
+  vim.keymap.set("n", "[[", function()
+    move_heading(session, "previous")
+  end, vim.tbl_extend("force", opts, { desc = "mdeye: previous heading" }))
+  vim.keymap.set("n", "gO", function()
+    show_outline(session)
+  end, vim.tbl_extend("force", opts, { desc = "mdeye: heading outline" }))
+  vim.keymap.set("n", "yc", function()
+    M.copy_code(session)
+  end, vim.tbl_extend("force", opts, { desc = "mdeye: copy fenced code" }))
 end
 
 ---@param session MDEyeSession

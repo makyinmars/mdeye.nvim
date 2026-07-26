@@ -28,7 +28,12 @@ function M.toggle(opts)
   return require("mdeye.session").toggle(opts)
 end
 
----:MDEye [current|split|tab|close] dispatcher.
+---@return boolean ok
+function M.copy_code()
+  return require("mdeye.session").copy_code()
+end
+
+---:MDEye [current|split|tab|close|copy-code] dispatcher.
 ---@param cmd { args: string }
 function M._command(cmd)
   local arg = vim.trim(cmd.args or "")
@@ -36,6 +41,8 @@ function M._command(cmd)
     M.toggle()
   elseif arg == "close" then
     M.close()
+  elseif arg == "copy-code" then
+    M.copy_code()
   elseif arg == "current" or arg == "split" or arg == "tab" then
     M.open({ mode = arg })
   else

@@ -82,6 +82,7 @@ local hl_defaults = {
   MDEyeCode = { "@markup.raw.markdown_inline", "@markup.raw", "String" },
   MDEyeCodeBlock = { "CursorLine" },
   MDEyeLink = { "@markup.link.label", "Underlined" },
+  MDEyeFootnote = { "@markup.link", "Special" },
   MDEyeQuote = { "@markup.quote", "Comment" },
   MDEyeListMarker = { "@markup.list", "Special" },
   MDEyeTableBorder = { "@punctuation.special", "Delimiter" },

@@ -12,10 +12,15 @@ function M.check()
     return
   end
 
+  health.info(
+    "optional rich-content adapters: none configured (image adapters are not yet integrated)"
+  )
+
+  local document = require("mdeye.document")
+  local parser_health = document.parser_diagnostics()
   local parsers_ok = true
   for _, lang in ipairs({ "markdown", "markdown_inline" }) do
-    local ok = pcall(vim.treesitter.language.add, lang)
-    if ok then
+    if parser_health.parsers[lang] then
       health.ok(("tree-sitter parser available: %s"):format(lang))
     else
       health.error(("tree-sitter parser missing: %s"):format(lang))
@@ -25,24 +30,10 @@ function M.check()
   if not parsers_ok then
     return
   end
-
-  -- Functional check that the *effective* runtime injection query injects
-  -- markdown_inline into pipe_table_cell; a third-party query installation
-  -- can shadow Neovim's bundled one.
-  local sample = "| a |\n| - |\n| b |\n"
-  local ok, parser = pcall(vim.treesitter.get_string_parser, sample, "markdown")
-  if not ok or not parser then
-    health.error("could not create a markdown string parser")
+  if parser_health.error then
+    health.error(parser_health.error)
     return
-  end
-  parser:parse(true)
-  local inline = parser:children()["markdown_inline"]
-  local regions = inline and inline:included_regions() or {}
-  local count = 0
-  for _, region in pairs(regions) do
-    count = count + #region
-  end
-  if count >= 2 then
+  elseif parser_health.table_injection then
     health.ok("markdown_inline is injected into pipe_table_cell")
   else
     health.warn(
@@ -50,6 +41,40 @@ function M.check()
         .. "table cells will render without inline styling. "
         .. "Check for a plugin shadowing Neovim's bundled markdown queries."
     )
+  end
+
+  local code_languages = {}
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].filetype == "markdown" then
+      local doc = document.parse(bufnr)
+      if doc then
+        for label, status in pairs(doc.code_languages) do
+          local current = code_languages[label] or {}
+          current.highlight_lang = current.highlight_lang or status.highlight_lang
+          code_languages[label] = current
+        end
+      end
+    end
+  end
+  if vim.tbl_isempty(code_languages) then
+    health.info("open a Markdown buffer to check its fenced-code language parsers")
+  else
+    local labels = vim.tbl_keys(code_languages)
+    table.sort(labels)
+    for _, label in ipairs(labels) do
+      local status = code_languages[label]
+      if status.highlight_lang then
+        health.ok(
+          ("fenced-code highlights available: %s -> %s"):format(label, status.highlight_lang)
+        )
+      else
+        health.warn(
+          ("no parser/highlight query for fenced-code language %q; code will render as plain text"):format(
+            label
+          )
+        )
+      end
+    end
   end
 end
 

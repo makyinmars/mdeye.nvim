@@ -61,6 +61,10 @@ Verify with: >
 :MDEye close		Close the preview and restore the source view when
 			appropriate. Works from the preview or the source.
 
+:MDEye copy-code	Copy the fenced block under the preview or source
+			cursor. The unnamed register is always set; the `+`
+			register is also set when clipboard support is present.
+
 Opening the same source again focuses its existing preview instead of
 creating a duplicate session. Non-Markdown buffers are rejected with one
 notification.
@@ -76,7 +80,13 @@ q			Close the preview and restore the source view.
 			to the source location of the block under the
 			cursor, adding one |jumplist| entry.
 
-gx			Open the link under the cursor.
+gx			Open the link or in-document anchor under the cursor.
+
+]] / [[		Move to the next / previous heading.
+
+gO			Select a heading from the document outline.
+
+yc			Copy the fenced code block under the cursor.
 
 mdeye installs no global keymaps. Suggested mapping: >
     vim.keymap.set("n", "<leader>me", "<Cmd>MDEye<CR>", { desc = "Markdown eye" })
@@ -100,6 +110,9 @@ toggle({opts})					*mdeye.toggle()*
 	Close an open preview for the current buffer, or open one with the
 	given mode.
 
+copy_code()					*mdeye.copy_code()*
+	Copy the fenced code block under the current preview or source cursor.
+
 ==============================================================================
 6. CONFIGURATION				*mdeye-configuration*
 
@@ -110,7 +123,7 @@ Defaults: >
       min_margin = 3,     -- minimum margin on each side
       debounce_ms = 120,  -- live-update debounce in milliseconds
       code = {
-        wrap = false,     -- fenced code is clipped, never reflowed
+        wrap = false,     -- false: scroll; true: display-cell wrapping
       },
     })
 <
@@ -135,6 +148,7 @@ colors are hard-coded, and explicit user highlights are never overwritten.
   MDEyeCode		Inline code.
   MDEyeCodeBlock	Fenced code block background.
   MDEyeLink		Link labels.
+  MDEyeFootnote		Footnote references and definition markers.
   MDEyeQuote		Block-quote text and gutter.
   MDEyeListMarker	List bullets and ordered markers.
   MDEyeTableBorder	Table borders.
@@ -157,11 +171,28 @@ Source edits (including unsaved ones) schedule a debounced full re-render.
 Resizing the owner window reflows the document and restores the block that
 was at the top of the view, so reading position is preserved.
 
-Links~
+Links and navigation~
 Link labels are visible; destinations are hidden but retained. Relative
 links resolve against the source file's directory at interaction time,
-never against Neovim's current working directory. Absolute http(s) and
-mailto links also carry extmark `url` metadata (OSC 8) where supported.
+never against Neovim's current working directory. Heading anchors work in
+the current preview and linked Markdown files. Absolute http(s) and mailto
+links also carry extmark `url` metadata (OSC 8) where supported.
+
+The `]]` and `[[` mappings move between headings; `gO` opens a selectable,
+indented heading outline. Source-to-preview synchronization continues to
+track the same semantic heading block in split mode.
+
+Code and footnotes~
+Fenced code uses the Tree-sitter parser and highlight query matching its
+language label. Common short labels such as `js`, `ts`, `py`, and `sh` are
+normalized. If no parser or query exists, the exact code remains visible as
+plain text. Language labels remain visible; over-wide lines scroll
+horizontally by default or wrap when `code.wrap` is true. |:MDEye|
+`copy-code` / `yc` copies the original, unwrapped content.
+
+GFM-style `[^label]` references render as numbered links to cleanly rendered
+definitions. Standard indented continuation blocks retain Markdown styling,
+lists, and fenced code. An unresolved reference stays visible as `[^label]`.
 
 Cleanup~
 Closing a preview removes its buffer, window (split/tab), autocmds,
@@ -176,8 +207,8 @@ Neovim renders on a character-cell grid. mdeye reproduces document structure
 and reading layout, not typography. It cannot provide proportional fonts,
 per-heading font sizes, pixel-level spacing, browser-quality tables, or
 inline raster images. Bold and italic rendering depends on the terminal and
-font. Images render as their alt text; raw HTML renders as readable plain
-text and is never executed. In-document `#anchor` links are not yet
-supported.
+font. Images render as linked alt text; no image backend is currently loaded.
+Raw HTML renders as readable plain text and is never executed. Footnote
+continuation paragraphs must use standard four-space indentation.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

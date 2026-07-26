@@ -70,4 +70,6 @@ raw html block
 
 Inline <span>html</span> in a paragraph.
 
-Final paragraph after everything.
+Final paragraph after everything. Return to [Heading Two](#heading-two) or read a note[^reader].
+
+[^reader]: A footnote with **formatted context** and a relative [reference](./notes.md).

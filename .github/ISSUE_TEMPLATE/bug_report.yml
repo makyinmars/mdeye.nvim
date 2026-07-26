@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible mdeye.nvim problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve mdeye.nvim. Please keep the sample minimal and remove private content.
+  - type: input
+    id: neovim
+    attributes:
+      label: Neovim version
+      description: Paste the first line of `nvim --version`.
+      placeholder: NVIM v0.11.0
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal or GUI
+      description: Include its version and image protocol, when relevant.
+      placeholder: WezTerm 20240203 / Kitty graphics protocol
+    validations:
+      required: true
+  - type: textarea
+    id: health
+    attributes:
+      label: Health report
+      description: Paste the output of `:checkhealth mdeye`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: mdeye configuration
+      description: Include setup options, mappings, and relevant parser installations.
+      render: lua
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Minimal Markdown sample
+      description: Provide the smallest document that reproduces the problem.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open the sample with `nvim --clean sample.md`
+        2. Load mdeye.nvim and run `:MDEye`
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

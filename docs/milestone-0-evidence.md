@@ -68,9 +68,10 @@ parse + layout + render runs, usable width 100, Apple Silicon, Neovim 0.12.2):
 
 | Fixture | Preview lines | Parse | Layout | Render | Total |
 | --- | --- | --- | --- | --- | --- |
-| 1,010 lines | 1,156 | 16 ms | 22 ms | 1.4 ms | **41 ms** |
-| 9,998 lines | 11,428 | 170 ms | 112 ms | 15 ms | **319 ms** |
+| 1,010 lines | 1,156 | 29 ms | 46 ms | 2.0 ms | **76 ms** |
+| 9,998 lines | 11,428 | 281 ms | 440 ms | 37 ms | **764 ms** |
 
-The 1,000-line initial render is well under the 100 ms target, so the renderer keeps
+These measurements include Tree-sitter highlighting for every Lua fence. The 1,000-line
+initial render remains under the 100 ms target, so the renderer keeps
 the plan's preferred design: complete full-document rerenders per debounced update,
 with no incremental-rendering complexity.

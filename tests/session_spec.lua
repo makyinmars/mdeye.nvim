@@ -262,13 +262,130 @@ describe("session", function()
     eq(0, session.count())
   end)
 
+  it("follows in-document heading and footnote anchors without leaving the preview", function()
+    close_all()
+    local src = make_source({
+      "# Top",
+      "",
+      "Read [details](#details) and note[^n].",
+      "",
+      "## Details",
+      "",
+      "Details body.",
+      "",
+      "[^n]: Supporting detail.",
+    })
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "current" }))
+    local s = session.get_by_preview(vim.api.nvim_get_current_buf())
+    local rows = vim.api.nvim_buf_get_lines(s.preview_buf, 0, -1, false)
+    local link_row, link_col, note_row, note_col
+    for i, line in ipairs(rows) do
+      link_col = link_col or line:find("details", 1, true)
+      if link_col and not link_row then
+        link_row = i
+      end
+      local col = line:find("[1]", 1, true)
+      if col and not note_row then
+        note_row, note_col = i, col
+      end
+    end
+    ok(link_row and note_row)
+
+    vim.api.nvim_win_set_cursor(0, { link_row, link_col - 1 })
+    vim.api.nvim_feedkeys("gx", "x", false)
+    vim.wait(50)
+    eq(s.preview_buf, vim.api.nvim_get_current_buf())
+    eq(s.plan.anchors.details.row + 1, vim.api.nvim_win_get_cursor(0)[1])
+
+    vim.api.nvim_win_set_cursor(0, { note_row, note_col - 1 })
+    vim.api.nvim_feedkeys("gx", "x", false)
+    vim.wait(50)
+    eq(s.plan.anchors["fn-n"].row + 1, vim.api.nvim_win_get_cursor(0)[1])
+  end)
+
+  it("navigates to the next and previous headings", function()
+    close_all()
+    local src = make_source({ "# Top", "", "body", "", "## Middle" })
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "current" }))
+    local active = session.get_by_preview(vim.api.nvim_get_current_buf())
+    vim.api.nvim_win_set_cursor(0, { active.plan.headings[1].row + 1, 0 })
+
+    vim.api.nvim_feedkeys("]]", "x", false)
+    vim.wait(30)
+    eq(active.plan.headings[2].row + 1, vim.api.nvim_win_get_cursor(0)[1])
+    vim.api.nvim_feedkeys("[[", "x", false)
+    vim.wait(30)
+    eq(active.plan.headings[1].row + 1, vim.api.nvim_win_get_cursor(0)[1])
+  end)
+
+  it("selects a heading from the outline", function()
+    close_all()
+    local src = make_source({ "# Top", "", "## Middle", "", "### Bottom" })
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "current" }))
+    local active = session.get_by_preview(vim.api.nvim_get_current_buf())
+    local old_select = vim.ui.select
+    vim.ui.select = function(items, opts, on_choice)
+      eq(3, #items)
+      eq("mdeye headings", opts.prompt)
+      eq("    Bottom", opts.format_item(items[3]))
+      on_choice(items[3])
+    end
+    vim.api.nvim_feedkeys("gO", "x", false)
+    vim.wait(30)
+    vim.ui.select = old_select
+    eq(active.plan.headings[3].row + 1, vim.api.nvim_win_get_cursor(0)[1])
+  end)
+
+  it("copies the fenced block under the cursor", function()
+    close_all()
+    local src = make_source({
+      "# Code",
+      "",
+      "```lua",
+      "local answer = 42",
+      "print(answer)",
+      "```",
+    })
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "current" }))
+    local s = session.get_by_preview(vim.api.nvim_get_current_buf())
+    local code = s.plan.code_blocks[1]
+    vim.api.nvim_win_set_cursor(0, { code.row_start + 1, 0 })
+    vim.cmd("MDEye copy-code")
+    eq("local answer = 42\nprint(answer)\n", vim.fn.getreg('"'))
+  end)
+
+  it("copies live fenced content before the debounced preview update", function()
+    close_all()
+    local src = make_source({
+      "# Code",
+      "",
+      "```lua",
+      "local answer = 1",
+      "```",
+    })
+    local src_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "split" }))
+
+    vim.api.nvim_buf_set_lines(src, 3, 4, false, { "local answer = 2" })
+    vim.api.nvim_set_current_win(src_win)
+    vim.api.nvim_win_set_cursor(src_win, { 4, 0 })
+    ok(mdeye.copy_code())
+    eq("local answer = 2\n", vim.fn.getreg('"'))
+  end)
+
   it("resolves relative links against the source path, not the cwd", function()
     close_all()
     local dir = vim.fn.tempname()
     vim.fn.mkdir(dir .. "/docs", "p")
     local target = dir .. "/docs/other.md"
-    vim.fn.writefile({ "# Other" }, target)
-    local src = make_source({ "A [relative](./docs/other.md) link." }, dir .. "/README.md")
+    vim.fn.writefile({ "# Intro", "", "## Other Target", "", "body" }, target)
+    local src =
+      make_source({ "A [relative](./docs/other.md#other-target) link." }, dir .. "/README.md")
     vim.api.nvim_set_current_buf(src)
     ok(mdeye.open({ mode = "current" }))
     local s = session.get_by_preview(vim.api.nvim_get_current_buf())
@@ -287,6 +404,7 @@ describe("session", function()
     vim.wait(100)
     -- Compare real paths: on macOS /var is a symlink to /private/var.
     eq(vim.uv.fs_realpath(target), vim.uv.fs_realpath(vim.api.nvim_buf_get_name(0)))
+    eq(3, vim.api.nvim_win_get_cursor(0)[1])
   end)
 
   it("opens and closes a tab-page preview", function()

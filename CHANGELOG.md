@@ -2,6 +2,19 @@
 
 All notable changes to mdeye.nvim will be documented in this file.
 
+## Unreleased
+
+### Added
+
+- Tree-sitter syntax highlighting for fenced code, with language aliases and a plain-text
+  fallback when a parser or highlight query is unavailable.
+- `:MDEye copy-code` and preview-local `yc` for copying original fenced content, plus
+  optional display-cell wrapping through `code.wrap`.
+- GitHub-style heading anchors, next/previous heading mappings, and a `gO` heading outline.
+- Numbered GFM-style footnotes with in-preview navigation and semantic continuation blocks.
+- Fenced-code parser reporting in `:checkhealth mdeye` for loaded Markdown documents.
+- A terminal/image compatibility matrix and a structured bug-report issue template.
+
 ## 0.1.0 — 2026-07-26
 
 Initial public release.
