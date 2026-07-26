@@ -315,7 +315,7 @@ inline_converters = {
     }
   end,
 
-  hard_line_break = function(ctx, node, _, out)
+  hard_line_break = function(_, node, _, out)
     out[#out + 1] = { kind = "break", source = span_from_node(node) }
   end,
 

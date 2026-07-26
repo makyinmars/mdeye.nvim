@@ -547,10 +547,10 @@ function M.sync_from_source(session)
   pcall(vim.api.nvim_win_set_cursor, session.owner_win, { math.min(block.row_start + 1, last), 0 })
 end
 
----@param src_buf integer
 ---@param mode "current"|"split"|"tab"
+---@param preview_buf integer
 ---@return integer|nil owner_win
-local function place_window(src_buf, mode, preview_buf)
+local function place_window(mode, preview_buf)
   if mode == "current" then
     local win = vim.api.nvim_get_current_win()
     local ok, err = pcall(vim.api.nvim_win_set_buf, win, preview_buf)
@@ -641,7 +641,7 @@ function M.open(opts)
   render.setup_buffer(preview_buf)
   pcall(vim.api.nvim_buf_set_name, preview_buf, preview_name(src_buf))
 
-  local owner_win = place_window(src_buf, mode, preview_buf)
+  local owner_win = place_window(mode, preview_buf)
   if not owner_win then
     pcall(vim.api.nvim_buf_delete, preview_buf, { force = true })
     return false
