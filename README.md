@@ -30,7 +30,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  "franklin/mdeye.nvim",
+  "makyinmars/mdeye.nvim",
   ft = "markdown",
   opts = {},
 }
@@ -39,7 +39,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 With Neovim's built-in `vim.pack`:
 
 ```lua
-vim.pack.add({ "https://github.com/franklin/mdeye.nvim" })
+vim.pack.add({ "https://github.com/makyinmars/mdeye.nvim" })
 require("mdeye").setup()
 ```
 
