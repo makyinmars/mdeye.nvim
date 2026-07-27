@@ -603,11 +603,27 @@ local function render_html(ctx, block, prefix, avail)
   end
 end
 
+local alert_styles = {
+  note = { title = "Note", hl = "MDEyeAlertNote" },
+  tip = { title = "Tip", hl = "MDEyeAlertTip" },
+  important = { title = "Important", hl = "MDEyeAlertImportant" },
+  warning = { title = "Warning", hl = "MDEyeAlertWarning" },
+  caution = { title = "Caution", hl = "MDEyeAlertCaution" },
+}
+
 ---@param ctx MDEyeLayoutCtx
 local function render_quote(ctx, block, prefix, avail)
+  local alert = alert_styles[block.attrs.alert]
+  local quote_hl = alert and alert.hl or "MDEyeQuote"
   local qprefix = vim.list_slice(prefix)
-  qprefix[#qprefix + 1] = frag("┃ ", { "MDEyeQuote" })
+  qprefix[#qprefix + 1] = frag("┃ ", { quote_hl })
   local row_start = #ctx.plan.lines
+  if alert then
+    ctx:emit(prefix, {
+      frag("┃ ", { quote_hl }),
+      frag(alert.title, { quote_hl }),
+    })
+  end
   render_blocks(ctx, block.blocks, qprefix, avail - 2)
   local row_end = #ctx.plan.lines - 1
   if row_end >= row_start then

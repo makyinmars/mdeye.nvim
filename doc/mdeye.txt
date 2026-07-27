@@ -150,6 +150,11 @@ colors are hard-coded, and explicit user highlights are never overwritten.
   MDEyeLink		Link labels.
   MDEyeFootnote		Footnote references and definition markers.
   MDEyeQuote		Block-quote text and gutter.
+  MDEyeAlertNote	Note alert title and gutter.
+  MDEyeAlertTip		Tip alert title and gutter.
+  MDEyeAlertImportant	Important alert title and gutter.
+  MDEyeAlertWarning	Warning alert title and gutter.
+  MDEyeAlertCaution	Caution alert title and gutter.
   MDEyeListMarker	List bullets and ordered markers.
   MDEyeTableBorder	Table borders.
   MDEyeTaskChecked	Completed task glyph.
@@ -182,6 +187,13 @@ The `]]` and `[[` mappings move between headings; `gO` opens a selectable,
 indented heading outline. Source-to-preview synchronization continues to
 track the same semantic heading block in split mode.
 
+Quotes and alerts~
+Block quotes use a consistent gutter and retain nested Markdown structure.
+GitHub-style `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and
+`[!CAUTION]` markers at the start of a quote render as semantic alert titles.
+Their title and gutter link to diagnostic highlight groups; nested prose,
+lists, links, and code continue through the ordinary Markdown layout path.
+
 Code and footnotes~
 Fenced code uses the Tree-sitter parser and highlight query matching its
 language label. Common short labels such as `js`, `ts`, `py`, and `sh` are
@@ -199,6 +211,9 @@ Closing a preview removes its buffer, window (split/tab), autocmds,
 mappings, and timers. Wiping either the source or the preview — including a
 preview wiped by an ordinary buffer switch, since 'bufhidden' is `wipe` —
 terminates the session safely. Repeated open/close cycles leak nothing.
+
+|:checkhealth| reports every active preview's placement and verifies that its
+source buffer, preview buffer, owner window, and initial render remain valid.
 
 ==============================================================================
 9. LIMITATIONS					*mdeye-limitations*

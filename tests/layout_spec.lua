@@ -219,6 +219,24 @@ describe("layout", function()
     end
   end)
 
+  it("renders GitHub-style alerts with semantic titles and highlights", function()
+    local plan = make_plan(
+      "> [!WARNING]\n> Be **careful** with this long warning because it must wrap safely.\n>\n> - nested item",
+      { usable_width = 42, max_width = 38, min_margin = 2 }
+    )
+    local text = table.concat(plan.lines, "\n")
+    ok(text:find("┃ Warning", 1, true), "semantic alert title is visible")
+    ok(not text:find("[!WARNING]", 1, true), "source marker is hidden")
+    ok(text:find("• nested item", 1, true), "nested Markdown stays semantic")
+    for _, line in ipairs(content_lines(plan)) do
+      ok(line:find("┃", 1, true), "alert gutter on every content line")
+      ok(width(line) <= plan.margin + plan.width, "alert line exceeds the reading column")
+    end
+    local marks = marks_with(plan, "MDEyeAlertWarning")
+    ok(#marks > 0, "warning title and gutter use the warning highlight")
+    ok(mark_text(plan, marks[1]):find("Warning", 1, true))
+  end)
+
   it("keeps code verbatim, padded to a background block, never reflowed", function()
     local plan = make_plan("```lua\nlocal x = 1    -- spacing   kept\nreturn x\n```")
     local code_lines = {}

@@ -43,6 +43,45 @@ function M.check()
     )
   end
 
+  local active = require("mdeye.session").diagnostics()
+  if #active == 0 then
+    health.info("no active previews")
+  else
+    for _, state in ipairs(active) do
+      local source = state.source_name ~= "" and vim.fn.fnamemodify(state.source_name, ":~:.")
+        or "[No Name]"
+      local summary = ("%s (%s; source=%d, preview=%d, window=%d)"):format(
+        source,
+        state.mode,
+        state.src_buf,
+        state.preview_buf,
+        state.owner_win
+      )
+      local issues = {}
+      if not state.source_valid then
+        issues[#issues + 1] = "source buffer is invalid"
+      end
+      if not state.preview_valid then
+        issues[#issues + 1] = "preview buffer is invalid"
+      end
+      if not state.owner_valid then
+        issues[#issues + 1] = "owner window is invalid"
+      elseif not state.owner_shows_preview then
+        issues[#issues + 1] = "owner window does not show the preview"
+      end
+      if not state.rendered then
+        issues[#issues + 1] = "initial render is incomplete"
+      end
+      if #issues == 0 then
+        health.ok("active preview healthy: " .. summary)
+      else
+        health.warn(
+          "active preview needs attention: " .. summary .. ": " .. table.concat(issues, "; ")
+        )
+      end
+    end
+  end
+
   local code_languages = {}
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].filetype == "markdown" then

@@ -136,6 +136,28 @@ describe("document", function()
     eq(42, em.source.start_row)
   end)
 
+  it("recognizes GitHub-style alerts without consuming ordinary quotes", function()
+    local bufnr = make_buf(table.concat({
+      "> [!TIP]",
+      "> Keep **going**.",
+      "",
+      "> [!UNKNOWN]",
+      "> This stays an ordinary quote.",
+      "",
+      "> [!WARNING] not a standalone marker",
+    }, "\n"))
+    local parsed = assert(document.parse(bufnr))
+    local quotes = find_blocks(parsed.blocks, "quote")
+    eq(3, #quotes)
+    eq("tip", quotes[1].attrs.alert)
+    eq("Keep going.", text_of(quotes[1].blocks[1].runs))
+    eq(nil, quotes[2].attrs.alert)
+    ok(text_of(quotes[2].blocks[1].runs):find("!UNKNOWN", 1, true))
+    eq(nil, quotes[3].attrs.alert)
+    ok(text_of(quotes[3].blocks[1].runs):find("not a standalone marker", 1, true))
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end)
+
   it("excludes list continuation indents from emphasis spanning item lines", function()
     local list = find_blocks(doc.blocks, "list")[1]
     local item_para = find_blocks(list.items[2].blocks, "paragraph")[1]

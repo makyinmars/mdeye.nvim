@@ -57,6 +57,7 @@ local M = {}
 ---@field aligns string[]|nil table alignments
 ---@field label string|nil footnote label
 ---@field ordinal integer|nil footnote number
+---@field alert "note"|"tip"|"important"|"warning"|"caution"|nil quote alert type
 
 ---@class MDEyeBlock
 ---@field kind "heading"|"paragraph"|"list"|"quote"|"code"|"table"|"rule"|"html"|"footnote"
@@ -1129,6 +1130,53 @@ local function append_footnote_continuation(ctx, footnote, node)
   footnote.source.end_row = span.end_row
 end
 
+local alert_types = {
+  NOTE = "note",
+  TIP = "tip",
+  IMPORTANT = "important",
+  WARNING = "warning",
+  CAUTION = "caution",
+}
+
+---Recognize a GitHub-style alert marker in the first quote paragraph and
+---consume it so only the alert title and body reach layout.
+---@param blocks MDEyeBlock[]
+---@return string|nil alert
+local function consume_alert_marker(blocks)
+  local paragraph = blocks[1]
+  local runs = paragraph and paragraph.kind == "paragraph" and paragraph.runs or nil
+  local marker = runs and runs[1] or nil
+  if not marker or marker.kind ~= "link" or not marker.children or #marker.children ~= 1 then
+    return nil
+  end
+  local marker_text = marker.children[1]
+  local name = marker_text.kind == "text" and marker_text.text:match("^!([%a]+)$") or nil
+  local alert = name and alert_types[name:upper()] or nil
+  if not alert then
+    return nil
+  end
+
+  -- The marker must occupy the first quote line by itself. The inline parser
+  -- represents the following quote line as a leading newline on the next text
+  -- run; a marker-only paragraph has no next run.
+  local next_run = runs[2]
+  if next_run and (next_run.kind ~= "text" or not next_run.text:match("^[ \t]*\n")) then
+    return nil
+  end
+
+  table.remove(runs, 1)
+  if runs[1] then
+    runs[1].text = runs[1].text:gsub("^[ \t]*\n[ \t]*", "", 1)
+    if runs[1].text == "" then
+      table.remove(runs, 1)
+    end
+  end
+  if #runs == 0 then
+    table.remove(blocks, 1)
+  end
+  return alert
+end
+
 ---@param ctx MDEyeParseCtx
 ---@param node TSNode container (document, section, list_item, block_quote)
 ---@param out MDEyeBlock[]
@@ -1157,8 +1205,12 @@ convert_blocks = function(ctx, node, out)
     elseif t == "block_quote" then
       local blocks = {}
       convert_blocks(ctx, child, blocks)
-      out[#out + 1] =
-        { kind = "quote", blocks = blocks, attrs = {}, source = span_from_node(child) }
+      out[#out + 1] = {
+        kind = "quote",
+        blocks = blocks,
+        attrs = { alert = consume_alert_marker(blocks) },
+        source = span_from_node(child),
+      }
     elseif t == "fenced_code_block" then
       out[#out + 1] = convert_code(ctx, child)
     elseif t == "indented_code_block" then

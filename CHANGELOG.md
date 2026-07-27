@@ -14,6 +14,9 @@ All notable changes to mdeye.nvim will be documented in this file.
 - Numbered GFM-style footnotes with in-preview navigation and semantic continuation blocks.
 - Fenced-code parser reporting in `:checkhealth mdeye` for loaded Markdown documents.
 - A terminal/image compatibility matrix and a structured bug-report issue template.
+- GitHub-style `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` alerts with semantic,
+  theme-friendly titles and gutters.
+- Active preview session diagnostics in `:checkhealth mdeye`.
 
 ## 0.1.0 — 2026-07-26
 

@@ -11,8 +11,8 @@ theme-friendly highlights, in the spirit of Zed's native Markdown preview.
 - A centered reading column with symmetric margins (`min(max_width, width - 2 * min_margin)`).
 - Headings without `#` markers, with dividers and deliberate vertical rhythm.
 - Emphasis, strong, strikethrough, inline code, links (destinations hidden), lists,
-  task lists, block quotes, syntax-highlighted fenced code, footnotes, thematic breaks,
-  and GitHub-style tables.
+  task lists, block quotes, GitHub-style alerts, syntax-highlighted fenced code, footnotes,
+  thematic breaks, and GitHub-style tables.
 - Live, debounced updates from unsaved source edits; reflow on window resize that keeps
   your reading position.
 - Jump back to the exact source block with `<CR>`; follow links and document anchors.
@@ -26,7 +26,8 @@ theme-friendly highlights, in the spirit of Zed's native Markdown preview.
 
 No other runtime dependencies. Fenced code uses any matching Tree-sitter language parsers already
 installed in Neovim and falls back to readable plain text when one is unavailable. Run
-`:checkhealth mdeye` to verify the Markdown parsers and parsers used by open documents.
+`:checkhealth mdeye` to verify the Markdown parsers, parsers used by open documents, and active
+preview session state.
 
 ## Installation
 
@@ -115,7 +116,8 @@ Every group uses `default link` semantics, so your colorscheme and explicit
 `MDEyeText`, `MDEyeMuted`, `MDEyeHeading1`–`MDEyeHeading6`, `MDEyeHeadingRule`,
 `MDEyeEmphasis`, `MDEyeStrong`, `MDEyeStrike`, `MDEyeCode`, `MDEyeCodeBlock`,
 `MDEyeLink`, `MDEyeFootnote`, `MDEyeQuote`, `MDEyeListMarker`,
-`MDEyeTableBorder`, `MDEyeTaskChecked`, `MDEyeTaskUnchecked`
+`MDEyeTableBorder`, `MDEyeTaskChecked`, `MDEyeTaskUnchecked`, `MDEyeAlertNote`,
+`MDEyeAlertTip`, `MDEyeAlertImportant`, `MDEyeAlertWarning`, `MDEyeAlertCaution`
 
 Example override:
 
@@ -137,6 +139,8 @@ vim.api.nvim_set_hl(0, "MDEyeHeading1", { fg = "#c6a0f6", bold = true })
 - GFM-style footnote references render as numbered links to cleanly formatted definitions.
   Standard indented continuation blocks retain Markdown styling, lists, and fenced code;
   unresolved references remain visible as source-shaped text.
+- GitHub-style `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` alerts render with semantic
+  titles and theme-controlled diagnostic colors while preserving nested Markdown content.
 - Fenced code keeps its language label and whitespace, uses the language's Tree-sitter
   highlight query when available, and otherwise stays readable as plain text. Over-wide
   code lines scroll horizontally by default or wrap when `code.wrap` is true; tables shrink

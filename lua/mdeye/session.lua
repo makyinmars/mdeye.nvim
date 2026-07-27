@@ -58,6 +58,47 @@ function M.count()
   return vim.tbl_count(sessions)
 end
 
+---@class MDEyeSessionDiagnostic
+---@field src_buf integer
+---@field preview_buf integer
+---@field owner_win integer
+---@field mode "current"|"split"|"tab"
+---@field source_name string
+---@field source_valid boolean
+---@field preview_valid boolean
+---@field owner_valid boolean
+---@field owner_shows_preview boolean
+---@field rendered boolean
+
+---Return stable, read-only state for support diagnostics.
+---@return MDEyeSessionDiagnostic[]
+function M.diagnostics()
+  local diagnostics = {}
+  for _, session in pairs(sessions) do
+    local source_valid = vim.api.nvim_buf_is_valid(session.src_buf)
+    local preview_valid = vim.api.nvim_buf_is_valid(session.preview_buf)
+    local owner_valid = vim.api.nvim_win_is_valid(session.owner_win)
+    diagnostics[#diagnostics + 1] = {
+      src_buf = session.src_buf,
+      preview_buf = session.preview_buf,
+      owner_win = session.owner_win,
+      mode = session.mode,
+      source_name = source_valid and vim.api.nvim_buf_get_name(session.src_buf) or "",
+      source_valid = source_valid,
+      preview_valid = preview_valid,
+      owner_valid = owner_valid,
+      owner_shows_preview = owner_valid and preview_valid and vim.api.nvim_win_get_buf(
+        session.owner_win
+      ) == session.preview_buf,
+      rendered = session.plan ~= nil and session.rendered_tick ~= nil,
+    }
+  end
+  table.sort(diagnostics, function(a, b)
+    return a.src_buf < b.src_buf
+  end)
+  return diagnostics
+end
+
 -- Block mapping --------------------------------------------------------------
 
 ---Innermost block containing a preview row (fallback: nearest before).
