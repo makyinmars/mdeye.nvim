@@ -54,7 +54,8 @@ Verify with: >
 
 :MDEye split		Open or focus a synchronized preview in a right
 			split. Moving the source cursor scrolls the preview
-			to the corresponding rendered block.
+			to the corresponding rendered block. The split is an
+			ordinary resizable Neovim window.
 
 :MDEye tab		Open or focus the preview in a new tab page.
 
@@ -88,6 +89,13 @@ gO			Select a heading from the document outline.
 
 yc			Copy the fenced code block under the cursor.
 
+In split mode, use `10<C-W>>` to grow the focused preview by 10 columns and
+`10<C-W><` to shrink it. You can also drag the split separator when 'mouse'
+is enabled (for example, `:set mouse=a`). The document reflows after each
+resize while preserving the reading position. Set `max_width = false` (see
+|mdeye-configuration|) if the reading column should keep growing with the
+window instead of stopping at the default 88 cells.
+
 mdeye installs no global keymaps. Suggested mapping: >
     vim.keymap.set("n", "<leader>me", "<Cmd>MDEye<CR>", { desc = "Markdown eye" })
 <
@@ -119,7 +127,7 @@ copy_code()					*mdeye.copy_code()*
 Defaults: >
     require("mdeye").setup({
       open = "current",   -- default placement: "current" | "split" | "tab"
-      max_width = 88,     -- maximum reading-column width in display cells
+      max_width = 88,     -- maximum reading width; false follows the window
       min_margin = 3,     -- minimum margin on each side
       debounce_ms = 120,  -- live-update debounce in milliseconds
       code = {
@@ -128,8 +136,9 @@ Defaults: >
     })
 <
 The content width is `min(max_width, available_width - 2 * min_margin)`,
-centered with symmetric margins. Renderer internals are deliberately not
-configurable; highlight groups are the customization seam.
+centered with symmetric margins. When `max_width` is false, the available
+window width is used instead of a maximum. Renderer internals are deliberately
+not configurable; highlight groups are the customization seam.
 
 ==============================================================================
 7. HIGHLIGHTS					*mdeye-highlights*

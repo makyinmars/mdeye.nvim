@@ -74,6 +74,13 @@ In split mode, moving the source cursor scrolls the preview to the corresponding
 Preview cursor movement never moves the source cursor; `<CR>` performs that jump
 explicitly.
 
+Split previews are ordinary resizable Neovim windows. With the preview focused, use
+`10<C-w>>` to grow it by 10 columns or `10<C-w><` to shrink it. You can also drag the
+split separator when Neovim's `mouse` option is enabled (for example, `:set mouse=a`).
+The document reflows after every resize without losing your reading position. The reading
+column stops growing at `max_width` by default; set `max_width = false` to make it follow
+the full pane width.
+
 mdeye installs no global keymaps. A suggested mapping:
 
 ```lua
@@ -96,7 +103,7 @@ Defaults shown; calling `setup()` is optional unless you change them.
 ```lua
 require("mdeye").setup({
   open = "current",   -- default placement: "current" | "split" | "tab"
-  max_width = 88,     -- maximum reading-column width in display cells
+  max_width = 88,     -- maximum reading width; false follows the window width
   min_margin = 3,     -- minimum margin on each side
   debounce_ms = 120,  -- live-update debounce
   code = {

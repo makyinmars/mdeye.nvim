@@ -3,7 +3,7 @@ local M = {}
 
 ---@class MDEyeConfig
 ---@field open "current"|"split"|"tab"
----@field max_width integer
+---@field max_width integer|false false uses the full available window width
 ---@field min_margin integer
 ---@field debounce_ms integer
 ---@field code { wrap: boolean }
@@ -29,7 +29,9 @@ local function validate(opts)
     vim.validate("open", opts.open, function(v)
       return v == nil or v == "current" or v == "split" or v == "tab"
     end, true, '"current"|"split"|"tab"')
-    vim.validate("max_width", opts.max_width, "number", true)
+    vim.validate("max_width", opts.max_width, function(v)
+      return v == nil or v == false or type(v) == "number"
+    end, true, "number|false")
     vim.validate("min_margin", opts.min_margin, "number", true)
     vim.validate("debounce_ms", opts.debounce_ms, "number", true)
     vim.validate("code", opts.code, "table", true)

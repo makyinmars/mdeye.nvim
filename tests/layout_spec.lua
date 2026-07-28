@@ -61,13 +61,18 @@ describe("layout", function()
     eq(88, w2)
     eq(56, m2)
 
-    -- narrow windows shrink margins before content becomes unusable
-    local w3, m3 = layout.geometry(24, 88, 3)
-    eq(20, w3)
-    eq(2, m3)
+    -- false lets the reading column follow the available window width
+    local w3, m3 = layout.geometry(200, false, 3)
+    eq(194, w3)
+    eq(3, m3)
 
-    local w4 = layout.geometry(12, 88, 3)
-    eq(12, w4)
+    -- narrow windows shrink margins before content becomes unusable
+    local w4, m4 = layout.geometry(24, 88, 3)
+    eq(20, w4)
+    eq(2, m4)
+
+    local w5 = layout.geometry(12, 88, 3)
+    eq(12, w5)
   end)
 
   it("reflows source hard-wrapped paragraphs into semantic lines", function()

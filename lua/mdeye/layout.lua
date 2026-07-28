@@ -48,7 +48,7 @@ local M = {}
 
 ---@class MDEyeLayoutOpts
 ---@field usable_width integer owner window text width in cells
----@field max_width integer
+---@field max_width integer|false false uses the full available window width
 ---@field min_margin integer
 ---@field tab_width integer|nil defaults to 4
 ---@field code_wrap boolean|nil wrap fenced lines to the content width
@@ -911,11 +911,12 @@ end
 
 ---Compute the reading column geometry.
 ---@param usable integer
----@param max_width integer
+---@param max_width integer|false
 ---@param min_margin integer
 ---@return integer width, integer margin
 function M.geometry(usable, max_width, min_margin)
-  local width = math.min(max_width, usable - 2 * min_margin)
+  local available = usable - 2 * min_margin
+  local width = max_width and math.min(max_width, available) or available
   if width < MIN_CONTENT then
     -- Margins shrink before content becomes unusably narrow.
     width = math.max(math.min(usable, MIN_CONTENT), 1)

@@ -17,6 +17,8 @@ All notable changes to mdeye.nvim will be documented in this file.
 - GitHub-style `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` alerts with semantic,
   theme-friendly titles and gutters.
 - Active preview session diagnostics in `:checkhealth mdeye`.
+- Uncapped `max_width = false` previews that grow and reflow with keyboard or mouse split
+  resizing.
 
 ## 0.1.0 — 2026-07-26
 

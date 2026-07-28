@@ -69,6 +69,12 @@ describe("session", function()
     eq(2, vim.fn.exists(":MDEye")) -- 2: full command name defined
   end)
 
+  it("accepts an uncapped reading width", function()
+    mdeye.setup({ debounce_ms = 20, max_width = false })
+    eq(false, require("mdeye.config").options.max_width)
+    mdeye.setup({ debounce_ms = 20 })
+  end)
+
   it("rejects non-Markdown buffers with one notification", function()
     close_all()
     local bufnr = vim.api.nvim_create_buf(true, false)
