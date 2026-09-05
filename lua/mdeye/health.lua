@@ -12,9 +12,16 @@ function M.check()
     return
   end
 
-  health.info(
-    "optional rich-content adapters: none configured (image adapters are not yet integrated)"
-  )
+  if require("mdeye.config").options.images.enabled then
+    local backend, reason = require("mdeye.images").available()
+    if backend then
+      health.ok("optional local images: image.nvim available")
+    else
+      health.warn((reason or "image backend unavailable") .. "; retaining alt text")
+    end
+  else
+    health.info("local images disabled; linked alt text is used")
+  end
 
   local document = require("mdeye.document")
   local parser_health = document.parser_diagnostics()
@@ -57,6 +64,9 @@ function M.check()
         state.preview_buf,
         state.owner_win
       )
+      if state.image_status then
+        health.warn(state.image_status)
+      end
       local issues = {}
       if not state.source_valid then
         issues[#issues + 1] = "source buffer is invalid"
@@ -103,7 +113,9 @@ function M.check()
     for _, label in ipairs(labels) do
       local status = code_languages[label]
       if label:lower() == "mermaid" then
-        health.info("Mermaid: native flowchart connections; unsupported syntax stays as source")
+        health.info(
+          "Mermaid: shared graphs, subgraphs, sequences; unsupported syntax stays as source"
+        )
       elseif status.highlight_lang then
         health.ok(
           ("fenced-code highlights available: %s -> %s"):format(label, status.highlight_lang)

@@ -565,7 +565,7 @@ describe("Mermaid sessions", function()
     ok(vim.wait(2000, function()
       return s.plan.width ~= old_width
     end, 10))
-    ok(preview_text():find("  v", 1, true))
+    ok(preview_text():find("mermaid (", 1, true))
     vim.api.nvim_buf_set_lines(src, 4, 5, false, { "A --> C" })
     ok(vim.wait(2000, function()
       return preview_text():find("| C", 1, true) ~= nil
@@ -583,6 +583,147 @@ describe("Mermaid sessions", function()
     vim.api.nvim_feedkeys(vim.keycode("<CR>"), "x", false)
     eq(src, vim.api.nvim_get_current_buf())
     eq(3, vim.api.nvim_win_get_cursor(0)[1])
+    close_all()
+  end)
+end)
+
+describe("reading anchors and folds", function()
+  it("preserves a passage inside a long paragraph through resize and earlier edits", function()
+    close_all()
+    local words = {}
+    for i = 1, 350 do
+      words[#words + 1] = "word" .. i
+    end
+    local src = make_source({ "# Heading", "", table.concat(words, " "), "", "End." })
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "split" }))
+    local s = session.get(src)
+    vim.api.nvim_set_current_win(s.owner_win)
+    local target
+    for i, line in ipairs(s.plan.lines) do
+      if line:find("word140 ", 1, true) then
+        target = i
+      end
+    end
+    ok(target)
+    local original_word = s.plan.lines[target]:match("word%d+")
+    vim.api.nvim_win_set_cursor(0, { target, 0 })
+    vim.cmd("normal! zt")
+    local old_width = s.plan.width
+    vim.api.nvim_win_set_width(s.owner_win, 28)
+    vim.api.nvim_exec_autocmds("WinResized", {})
+    ok(vim.wait(2000, function()
+      return s.plan.width ~= old_width
+    end, 10))
+    local function cursor_line()
+      return s.plan.lines[vim.api.nvim_win_get_cursor(0)[1]]
+    end
+    ok(cursor_line():find(original_word, 1, true), cursor_line())
+    vim.api.nvim_buf_set_lines(src, 0, 0, false, { "A new introduction.", "" })
+    ok(vim.wait(2000, function()
+      return s.rendered_tick == vim.api.nvim_buf_get_changedtick(src)
+    end, 10))
+    ok(cursor_line():find(original_word, 1, true), cursor_line())
+    -- Inserting text within the same paragraph should also retain the passage.
+    vim.api.nvim_buf_set_lines(
+      src,
+      4,
+      5,
+      false,
+      { "Extra words before the passage. " .. table.concat(words, " ") }
+    )
+    ok(vim.wait(2000, function()
+      return s.rendered_tick == vim.api.nvim_buf_get_changedtick(src)
+    end, 10))
+    ok(cursor_line():find(original_word, 1, true), cursor_line())
+    close_all()
+  end)
+
+  it("retains nested heading/code fold choices through edits and resize", function()
+    close_all()
+    local src = make_source({
+      "# Outer",
+      "",
+      "## Inner",
+      "",
+      "```lua",
+      "local x = 1",
+      "print(x)",
+      "```",
+      "",
+      "## Next",
+      "",
+      "Tail",
+    })
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "split" }))
+    local s = session.get(src)
+    vim.api.nvim_set_current_win(s.owner_win)
+    local function key(text)
+      vim.api.nvim_feedkeys(text, "x", false)
+    end
+    vim.api.nvim_win_set_cursor(0, { s.plan.code_blocks[1].row_start + 1, 0 })
+    key("zc")
+    vim.api.nvim_win_set_cursor(0, { s.plan.headings[1].row + 1, 0 })
+    key("zc")
+    ok(vim.fn.foldclosed(s.plan.headings[1].row + 1) >= 0)
+    vim.api.nvim_buf_set_lines(src, 0, 0, false, { "Intro", "" })
+    ok(vim.wait(2000, function()
+      return s.rendered_tick == vim.api.nvim_buf_get_changedtick(src)
+    end, 10))
+    eq(s.plan.headings[1].row + 1, vim.fn.foldclosed(s.plan.headings[1].row + 1))
+    vim.api.nvim_win_set_cursor(0, { s.plan.headings[1].row + 1, 0 })
+    key("zo")
+    eq(s.plan.code_blocks[1].row_start + 1, vim.fn.foldclosed(s.plan.code_blocks[1].row_start + 1))
+    local width = s.plan.width
+    vim.api.nvim_win_set_width(s.owner_win, 27)
+    vim.api.nvim_exec_autocmds("WinResized", {})
+    ok(vim.wait(2000, function()
+      return s.plan.width ~= width
+    end, 10))
+    eq(s.plan.code_blocks[1].row_start + 1, vim.fn.foldclosed(s.plan.code_blocks[1].row_start + 1))
+    key("zR")
+    eq(-1, vim.fn.foldclosed(s.plan.code_blocks[1].row_start + 1))
+    close_all()
+  end)
+end)
+
+describe("preview fold lifecycle", function()
+  it("restores source folding options and removes source tracking marks", function()
+    close_all()
+    local src = make_source({ "# Heading", "", "Body" })
+    vim.api.nvim_set_current_buf(src)
+    vim.wo.foldmethod, vim.wo.foldenable = "indent", false
+    ok(mdeye.open())
+    eq("manual", vim.wo.foldmethod)
+    local ns = vim.api.nvim_create_namespace("mdeye-source-anchors")
+    ok(#vim.api.nvim_buf_get_extmarks(src, ns, 0, -1, {}) > 0)
+    ok(mdeye.close())
+    eq("indent", vim.wo.foldmethod)
+    eq(false, vim.wo.foldenable)
+    eq({}, vim.api.nvim_buf_get_extmarks(src, ns, 0, -1, {}))
+    close_all()
+  end)
+
+  it("rebuilds folds when a replacement removes native fold ranges", function()
+    close_all()
+    local src = make_source({ "# One", "", "Body one.", "", "## Two", "", "Body two." })
+    vim.api.nvim_set_current_buf(src)
+    ok(mdeye.open({ mode = "split" }))
+    local s = session.get(src)
+    vim.api.nvim_buf_set_lines(
+      src,
+      0,
+      -1,
+      false,
+      { "# New", "", "Changed.", "", "## Next", "", "Modified." }
+    )
+    ok(vim.wait(2000, function()
+      return s.rendered_tick == vim.api.nvim_buf_get_changedtick(src)
+    end, 10))
+    vim.api.nvim_set_current_win(s.owner_win)
+    eq(1, vim.fn.foldlevel(s.plan.headings[1].row + 1))
+    eq(2, vim.fn.foldlevel(s.plan.headings[2].row + 1))
     close_all()
   end)
 end)

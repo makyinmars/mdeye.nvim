@@ -1,5 +1,9 @@
 # Mermaid implementation evidence
 
+Historical evidence for the initial connection renderer. Shared graphs, subgraphs,
+sequences, and the other reader improvements are recorded in
+[reader-improvements.md](reader-improvements.md).
+
 The initial native renderer supports a conservative flowchart subset. It parses once
 through `document.lua`, stores a graph beside the original fenced lines, and lays out
 connected node pairs through `layout.lua`. It uses no external runtime or network.

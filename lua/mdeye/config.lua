@@ -7,7 +7,8 @@ local M = {}
 ---@field min_margin integer
 ---@field debounce_ms integer
 ---@field code { wrap: boolean }
----@field mermaid { enabled: boolean }
+---@field images { enabled: boolean, max_width: integer, max_height: integer, max_file_size: integer, max_images: integer }
+---@field mermaid { enabled: boolean, layout: "graph"|"connections" }
 
 ---@type MDEyeConfig
 local defaults = {
@@ -15,7 +16,14 @@ local defaults = {
   max_width = 88,
   min_margin = 3,
   debounce_ms = 120,
-  mermaid = { enabled = true },
+  mermaid = { enabled = true, layout = "graph" },
+  images = {
+    enabled = false,
+    max_width = 60,
+    max_height = 16,
+    max_file_size = 10 * 1024 * 1024,
+    max_images = 32,
+  },
   code = {
     wrap = false,
   },
@@ -39,6 +47,19 @@ local function validate(opts)
     vim.validate("mermaid", opts.mermaid, "table", true)
     if opts.mermaid then
       vim.validate("mermaid.enabled", opts.mermaid.enabled, "boolean", true)
+      vim.validate("mermaid.layout", opts.mermaid.layout, function(value)
+        return value == nil or value == "graph" or value == "connections"
+      end, true, '"graph"|"connections"')
+    end
+    vim.validate("images", opts.images, "table", true)
+    if opts.images then
+      vim.validate("images.enabled", opts.images.enabled, "boolean", true)
+      for _, key in ipairs({ "max_width", "max_height", "max_file_size", "max_images" }) do
+        vim.validate("images." .. key, opts.images[key], function(v)
+          return v == nil
+            or (type(v) == "number" and v > 0 and v < math.huge and v == math.floor(v))
+        end, true, "positive integer")
+      end
     end
     vim.validate("code", opts.code, "table", true)
     if opts.code then

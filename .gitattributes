@@ -1,0 +1,2 @@
+# Render snapshots preserve the reader buffer's trailing blank lines.
+tests/fixtures/snapshots/*.txt whitespace=-blank-at-eof

@@ -6,6 +6,26 @@ All notable changes to mdeye.nvim will be documented in this file.
 
 ### Added
 
+- Shared-node Mermaid graphs with routed branches/cycles, nested subgraph containers,
+  and a compact connection fallback. `mermaid.layout` selects the graph or connection view.
+- Native Mermaid sequence diagrams with participants, messages, self-calls, activations,
+  notes, and loop/alternative/parallel regions.
+- Native heading and code folds, with nested choices retained through source edits and resize.
+- Optional local standalone images through image.nvim, with bounded reservations,
+  cached handles, visibility/cleanup handling, and linked alt-text fallback.
+- Reviewed 30- and 80-column layout snapshots and a 10,000-line editing benchmark.
+
+### Improved
+
+- Reading anchors track source edits and passages within blocks instead of resetting to
+  block starts. Diagram rows carry semantic identities for reflow.
+- Buffer updates retain unchanged lines and extmarks. Highlight-only updates do not
+  rewrite text; parsing and layout still process the whole document.
+- Blank code rows use valid extmark columns, and source folding options are restored
+  when returning from a same-window preview.
+
+### Previously added
+
 - Dependency-free Mermaid flowchart connection diagrams with directional arrows,
   edge labels, approximate node shapes, and width-aware stacking. Unsupported syntax
   and oversized diagrams retain the complete source with a fallback reason.

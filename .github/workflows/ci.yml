@@ -53,3 +53,7 @@ jobs:
         # reference development machine, not enforced here.
         continue-on-error: true
         run: nvim --headless -l tests/bench/bench.lua
+
+      - name: Editing benchmark (informational)
+        continue-on-error: true
+        run: nvim --headless -l tests/bench/updates.lua

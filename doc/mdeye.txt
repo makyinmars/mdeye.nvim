@@ -88,6 +88,9 @@ gx			Open the link or in-document anchor under the cursor.
 gO			Select a heading from the document outline.
 
 yc			Copy the fenced code block under the cursor.
+za / zo / zc            Toggle/open/close a heading or code fold.
+zR / zM                 Open/close all preview folds.
+zA / zO / zC            Recursive native fold operations.
 
 In split mode, use `10<C-W>>` to grow the focused preview by 10 columns and
 `10<C-W><` to shrink it. You can also drag the split separator when 'mouse'
@@ -130,7 +133,14 @@ Defaults: >
       max_width = 88,     -- maximum reading width; false follows the window
       min_margin = 3,     -- minimum margin on each side
       debounce_ms = 120,  -- live-update debounce in milliseconds
-      mermaid = { enabled = true }, -- false: show Mermaid source
+      mermaid = { enabled = true, layout = "graph" }, -- or "connections"
+      images = {
+        enabled = false,       -- opt in after configuring image.nvim
+        max_width = 60,        -- display cells
+        max_height = 16,       -- buffer rows
+        max_file_size = 10485760,
+        max_images = 32,
+      },
       code = {
         wrap = false,     -- false: scroll; true: display-cell wrapping
       },
@@ -206,35 +216,79 @@ Their title and gutter link to diagnostic highlight groups; nested prose,
 lists, links, and code continue through the ordinary Markdown layout path.
 
 Mermaid fences                                         *mdeye-mermaid*
-Fences labeled `mermaid` use native ASCII connection diagrams by default.
-Each edge is a separate connected pair, in source order. Repeated node IDs
-identify shared nodes, branches, and cycles. This is a connection view, not
-Mermaid's full graph layout. LR/RL pairs stack in narrow panes; TD/TB/BT pairs
-stack vertically. Labels wrap by display cells. Example: >
+Fences labeled `mermaid` render native ASCII diagrams. The default graph view
+draws shared nodes once with orthogonal edge lanes. Numbered source ports match
+an edge legend; x marks a crossing, not a junction. LR/RL graphs use horizontal
+placement when they fit, otherwise vertical placement. TD/TB/BT stack nodes.
+Ordering follows declarations and direction, not Mermaid's browser algorithm.
 
-    ```mermaid
-    flowchart LR
-      A[Draft] -->|review| B{Approved?}
-      B -->|yes| C[Publish]
-    ```
-<
-Supported: `flowchart`/`graph`, LR/RL/TD/TB/BT, ASCII letter/underscore IDs
-followed by letters/digits/underscores, plain nodes, [rectangle], (rounded),
+Supported flowcharts: `flowchart`/`graph`, LR/RL/TD/TB/BT, ASCII letter/underscore
+IDs followed by letters/digits/underscores, plain nodes, [rectangle], (rounded),
 ([stadium]), ((circle)), [[subroutine]], {decision}, -->/---/-.->/==> edges,
 chains, -->|label| and -- label --> edges, semicolon-separated statements,
 %% comments, single-line quoted labels, and later node-label updates.
-Shapes are approximate: rounded/circle/stadium nodes share a border and
-subroutines use rectangular borders. IDs remain visible beside node labels.
+Shapes are approximate. Nested `subgraph id[Title]` / `end` containers are
+supported to depth eight. Group-level links and local direction overrides
+retain source instead of discarding grouping.
 
-Unsupported diagram types, subgraphs, styling, directives, click actions,
-HTML/entities, Markdown labels, and incomplete input retain the whole source
-with a fallback reason. Native limits: 100 nodes, 200 edges, 500 lines, 64 KiB.
-A pane too narrow for a box also shows source. No external runtime is needed.
+Set `mermaid.layout = "connections"` for the pair-per-edge view. Ungrouped
+graphs use that view automatically if shared routing cannot fit. Subgraphs
+that cannot fit retain their source.
 
-Set `mermaid = { enabled = false }` to always display Mermaid source.
-`yc` and |:MDEye| copy-code copy original fence content; <CR> jumps to its
-source. Customize the `MDEyeDiagram` highlight group with :highlight as for other
-mdeye groups.
+Sequences: `sequenceDiagram`, participant/actor declarations, as aliases,
+autonumber, ->>/-->>/->/-->/--x/-x/--)/-) messages, self-calls, activate and
+deactivate, and +/- message activation suffixes. # marks an active lifeline.
+Arrow styles are approximated with ASCII. Notes support over, left of, and
+right of. Regions support loop, alt/else, opt, and par/and, closed with end.
+Use one sequence statement per line. Example: >
+
+    ```mermaid
+    sequenceDiagram
+    participant Reader
+    participant Plugin
+    Reader->>Plugin: Open Markdown
+    Plugin-->>Reader: Render document
+    ```
+<
+Unsupported types, styling, directives, click actions, HTML/entities, Markdown
+labels, and incomplete input retain the whole source with a fallback reason.
+Limits: 100 nodes, 200 edges/events, 20 sequence participants, 500 lines, 64 KiB.
+A pane too narrow for a sequence also shows source. No external runtime is
+needed for native diagrams.
+
+Set `mermaid.enabled = false` to always display source. `yc` and |:MDEye|
+copy-code copy original fence content; <CR> jumps to its source. Customize
+the MDEyeDiagram highlight group with :highlight.
+
+Reading position and folding                           *mdeye-folds*
+Heading sections and fenced code use native manual folds, initially open.
+za/zo/zc and their recursive variants work in the preview; zR/zM open/close
+all folds. Choices for retained source blocks survive live updates and resize,
+including closed children inside a closed parent. Heading/anchor navigation
+opens enclosing folds. Closing the preview discards its fold choices.
+
+Reading positions track source edits and the text passage within a block.
+Diagram rows carry node/event identities to preserve context through reflow.
+Unchanged line and highlight ranges are retained on updates. Parsing and
+layout still process the complete document.
+
+Local images                                           *mdeye-images*
+Configure image.nvim and its backend/processor independently, then enable: >
+
+    require("mdeye").setup({ images = { enabled = true } })
+<
+Standalone image paragraphs reserve real buffer rows below linked alt text.
+Relative files resolve against the source file directory; unnamed buffers use
+the working directory. Quotes/lists can contain image paragraphs. Remote URLs
+and images within prose remain linked alt text. No images are downloaded.
+
+The adapter caches handles, constrains file size and dimensions, refreshes on
+scroll/resize/folding, and clears images when removed or when the preview
+closes. Missing files or backend failures retain alt text. Reservations use
+a conventional 1:2 cell aspect estimate; the backend fits within the bounds.
+The adapter adds no virtual padding. Other image plugins are not integrated.
+:checkhealth mdeye reports availability and active image failures. The image
+library is not loaded by default.
 
 Code and footnotes~
 Fenced code uses the Tree-sitter parser and highlight query matching its
@@ -262,9 +316,9 @@ source buffer, preview buffer, owner window, and initial render remain valid.
 
 Neovim renders on a character-cell grid. mdeye reproduces document structure
 and reading layout, not typography. It cannot provide proportional fonts,
-per-heading font sizes, pixel-level spacing, browser-quality tables, or
-inline raster images. Bold and italic rendering depends on the terminal and
-font. Images render as linked alt text; no image backend is currently loaded.
+per-heading font sizes, pixel-level spacing, or browser-quality tables.
+Bold and italic rendering depends on the terminal and font. Local image
+rendering is optional and depends on image.nvim and a compatible backend.
 Raw HTML renders as readable plain text and is never executed. Footnote
 continuation paragraphs must use standard four-space indentation.
 

@@ -7,6 +7,8 @@ local config = require("mdeye.config")
 local document = require("mdeye.document")
 local layout = require("mdeye.layout")
 local render = require("mdeye.render")
+local view = require("mdeye.view")
+local images = require("mdeye.images")
 
 local M = {}
 
@@ -17,6 +19,12 @@ local M = {}
 ---@field owner_win integer
 ---@field src_win integer window that held the source when opening
 ---@field saved_view table|nil winsaveview() of the source (current mode)
+---@field saved_fold_options table
+---@field source_marks table<integer, integer>|nil source byte -> tracking extmark ID
+---@field source_positions table<integer, {row: integer, col: integer}>|nil
+---@field folds table[]|nil
+---@field image_cache table|nil
+---@field image_status string|nil
 ---@field augroup integer
 ---@field timer uv.uv_timer_t|nil
 ---@field generation integer
@@ -91,6 +99,7 @@ function M.diagnostics()
         session.owner_win
       ) == session.preview_buf,
       rendered = session.plan ~= nil and session.rendered_tick ~= nil,
+      image_status = session.image_status,
     }
   end
   table.sort(diagnostics, function(a, b)
@@ -178,48 +187,11 @@ local function owner_usable_width(session)
   return render.usable_width(session.owner_win)
 end
 
----@param session MDEyeSession
----@return {byte: integer, cursor_byte: integer}|nil
-local function capture_anchor(session)
-  if not session.plan or not owner_usable_width(session) then
-    return nil
-  end
-  local anchor
-  vim.api.nvim_win_call(session.owner_win, function()
-    local top = vim.fn.line("w0") - 1
-    local cursor = vim.api.nvim_win_get_cursor(0)[1] - 1
-    local top_block = block_at_row(session.plan, top)
-    local cur_block = block_at_row(session.plan, cursor)
-    anchor = {
-      byte = top_block and top_block.source.start_byte or 0,
-      cursor_byte = cur_block and cur_block.source.start_byte or 0,
-    }
-  end)
-  return anchor
-end
-
----@param session MDEyeSession
----@param anchor {byte: integer, cursor_byte: integer}|nil
-local function restore_anchor(session, anchor)
-  if not anchor or not session.plan or not owner_usable_width(session) then
-    return
-  end
-  local plan = session.plan
-  local top_block = block_at_byte(plan, anchor.byte)
-  local cur_block = block_at_byte(plan, anchor.cursor_byte)
-  local last = vim.api.nvim_buf_line_count(session.preview_buf)
-  local topline = math.min((top_block and top_block.row_start or 0) + 1, last)
-  local lnum = math.min((cur_block and cur_block.row_start or 0) + 1, last)
-  vim.api.nvim_win_call(session.owner_win, function()
-    vim.fn.winrestview({ topline = topline, lnum = math.max(lnum, topline), col = 0 })
-  end)
-end
-
 ---Parse, lay out, and apply in one controlled update.
 ---@param session MDEyeSession
----@param opts { anchor: boolean }|nil
 ---@return boolean ok
-local function update(session, opts)
+local update
+update = function(session)
   if session.closed or not vim.api.nvim_buf_is_valid(session.src_buf) then
     return false
   end
@@ -251,14 +223,26 @@ local function update(session, opts)
     min_margin = cfg.min_margin,
     code_wrap = cfg.code.wrap,
     mermaid_enabled = cfg.mermaid.enabled,
+    mermaid_layout = cfg.mermaid.layout,
+    image_specs = images.prepare(session, doc, cfg.images),
   })
 
-  local anchor = (opts and opts.anchor) and capture_anchor(session) or nil
-  render.apply(session.preview_buf, plan)
+  local anchor = view.capture(session)
+  render.apply(session.preview_buf, plan, session.plan)
   session.plan = plan
   session.rendered_tick = tick
   session.rendered_usable = usable
-  restore_anchor(session, anchor)
+  view.folds(session, anchor)
+  view.track(session)
+  view.restore(session, anchor)
+  if images.refresh(session) then
+    session.rendered_usable = nil
+    vim.schedule(function()
+      if not session.closed then
+        update(session)
+      end
+    end)
+  end
   return true
 end
 
@@ -280,7 +264,7 @@ local function schedule_update(session)
       if session.closed or gen ~= session.generation then
         return
       end
-      update(session, { anchor = true })
+      update(session)
     end)
   )
 end
@@ -297,6 +281,8 @@ function M.close_session(session, opts)
     return
   end
   session.closed = true
+  view.clear(session)
+  images.clear(session)
   sessions[session.src_buf] = nil
   by_preview[session.preview_buf] = nil
 
@@ -331,6 +317,16 @@ function M.close_session(session, opts)
       if not ok and vim.api.nvim_buf_is_valid(session.src_buf) then
         pcall(vim.api.nvim_win_set_buf, session.owner_win, session.src_buf)
       end
+    end
+  end
+
+  if
+    session.mode == "current"
+    and owner_valid
+    and vim.api.nvim_win_get_buf(session.owner_win) == session.src_buf
+  then
+    for name, value in pairs(session.saved_fold_options or {}) do
+      vim.wo[session.owner_win][name] = value
     end
   end
 
@@ -371,7 +367,7 @@ local function move_to_preview_row(session, row)
   row = math.max(0, math.min(row, last - 1))
   vim.api.nvim_win_set_cursor(session.owner_win, { row + 1, 0 })
   vim.api.nvim_win_call(session.owner_win, function()
-    vim.cmd("normal! zt")
+    vim.cmd("normal! zvzt")
   end)
   return true
 end
@@ -468,7 +464,7 @@ function M.copy_code(selected)
   end
 
   local tick = vim.api.nvim_buf_get_changedtick(active.src_buf)
-  if tick ~= active.rendered_tick and not update(active, { anchor = true }) then
+  if tick ~= active.rendered_tick and not update(active) then
     notify("could not refresh fenced code before copying", vim.log.levels.ERROR)
     return false
   end
@@ -625,6 +621,15 @@ end
 
 ---@param session MDEyeSession
 local function install_mappings(session)
+  for _, key in ipairs({ "za", "zA", "zc", "zC", "zo", "zO", "zM", "zR" }) do
+    vim.keymap.set("n", key, function()
+      local count = vim.v.count > 0 and tostring(vim.v.count) or ""
+      view.remember_folds(session)
+      vim.cmd("normal! " .. count .. key)
+      view.remember_folds(session)
+      images.refresh(session)
+    end, { buffer = session.preview_buf, silent = true, desc = "mdeye: " .. key .. " folds" })
+  end
   local buf = session.preview_buf
   local opts = { buffer = buf, nowait = true, silent = true }
   vim.keymap.set("n", "q", function()
@@ -665,6 +670,14 @@ end
 ---@param session MDEyeSession
 local function install_autocmds(session)
   local group = session.augroup
+  vim.api.nvim_create_autocmd({ "WinScrolled", "BufWinEnter", "TabEnter" }, {
+    group = group,
+    callback = function()
+      vim.schedule(function()
+        images.refresh(session)
+      end)
+    end,
+  })
 
   vim.api.nvim_create_autocmd("BufWipeout", {
     group = group,
@@ -697,7 +710,7 @@ local function install_autocmds(session)
         if wins[1] then
           session.owner_win = wins[1]
           session.rendered_usable = nil
-          update(session, { anchor = true })
+          update(session)
         else
           M.close_session(session, { restore = false })
         end
@@ -732,11 +745,12 @@ end
 ---@param session MDEyeSession
 local function attach_source(session)
   vim.api.nvim_buf_attach(session.src_buf, false, {
-    on_lines = function()
+    on_lines = function(_, _, _, first, last, new_last)
       -- Runs under textlock: only mark work and start the debounce timer.
       if session.closed then
         return true -- detach
       end
+      view.on_lines(session, first, last, new_last)
       schedule_update(session)
     end,
     on_reload = function()
@@ -878,6 +892,10 @@ function M.open(opts)
     pcall(vim.api.nvim_buf_delete, preview_buf, { force = true })
     return false
   end
+  local saved_fold_options = {}
+  for _, name in ipairs({ "foldmethod", "foldenable", "foldlevel", "foldminlines" }) do
+    saved_fold_options[name] = vim.wo[owner_win][name]
+  end
   render.setup_window(owner_win)
 
   ---@type MDEyeSession
@@ -888,6 +906,7 @@ function M.open(opts)
     owner_win = owner_win,
     src_win = src_win,
     saved_view = saved_view,
+    saved_fold_options = saved_fold_options,
     augroup = vim.api.nvim_create_augroup("MDEyeSession" .. preview_buf, { clear = true }),
     timer = vim.uv.new_timer(),
     generation = 0,

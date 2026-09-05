@@ -31,7 +31,7 @@ describe("mermaid", function()
   it("retains all branches, cycles, self-links, and disconnected nodes", function()
     local graph = assert(parse("flowchart LR\nA --> B\nA -.-> C\nC ==> A\nB --- B\nD[Alone]"))
     eq(4, #graph.edges)
-    local text = table.concat(assert(mermaid.layout(graph, 80, measure)), "\n")
+    local text = table.concat(assert(mermaid.layout(graph, 80, measure, "connections")), "\n")
     ok(text:find("..>", 1, true))
     ok(text:find("==>", 1, true))
     ok(text:find("---", 1, true))
@@ -45,7 +45,7 @@ describe("mermaid", function()
 
   it("distinguishes nodes with identical labels", function()
     local graph = assert(parse("flowchart LR; A[Same] --> B[Same]"))
-    local text = table.concat(mermaid.layout(graph, 80, measure), "\n")
+    local text = table.concat(mermaid.layout(graph, 80, measure, "connections"), "\n")
     ok(text:find("A: Same", 1, true))
     ok(text:find("B: Same", 1, true))
   end)
@@ -53,8 +53,8 @@ describe("mermaid", function()
   it("uses the requested direction and stacks narrow horizontal connections", function()
     for _, direction in ipairs({ "LR", "RL", "TD", "TB", "BT" }) do
       local graph = assert(parse("flowchart " .. direction .. "; A --> B"))
-      local wide = table.concat(mermaid.layout(graph, 80, measure), "\n")
-      local narrow = table.concat(mermaid.layout(graph, 12, measure), "\n")
+      local wide = table.concat(mermaid.layout(graph, 80, measure, "connections"), "\n")
+      local narrow = table.concat(mermaid.layout(graph, 12, measure, "connections"), "\n")
       local reverse = direction == "RL" or direction == "BT"
       ok(narrow:find(reverse and "^" or "v", 1, true))
       if direction == "LR" or direction == "RL" then
@@ -83,7 +83,7 @@ describe("mermaid", function()
     for _, source in ipairs({
       "",
       "flowchart LR",
-      "sequenceDiagram\nAlice->>Bob: Hi",
+      "sequenceDiagram\nunsupported",
       "flowchart XX; A --> B",
       "flowchart LR; A -->",
       "flowchart LR; A --> B; subgraph X",

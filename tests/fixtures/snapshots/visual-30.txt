@@ -1,0 +1,108 @@
+
+   Reading preview
+   ━━━━━━━━━━━━━━━━━━━━━━━━
+
+   A paragraph with strong
+   text, emphasis, and
+   日本語 café é that wraps
+   across the reading
+   column.
+
+
+   Lists and tables
+   ────────────────────────
+
+   • Parent item
+     • Nested content with
+       inline code.
+   ☑ Finished
+
+   ┌──────────────┬───────┐
+   │ Name         │ Value │
+   ├──────────────┼───────┤
+   │ 日本語       │    42 │
+   │ Longer label │  café │
+   └──────────────┴───────┘
+
+   ┃ A quotation with a
+   ┃ link.
+
+
+   Branch and cycle
+   ────────────────────────
+
+            mermaid (graph)
+    +---------+
+    | A: Draf |1-----+
+    | t       |<-----x---+
+    +---------+      |   |
+                     |   |
+                     |   |
+    <--------->      |   |
+    | B: Read |<-----+   |
+    | y?      |2-------+ |
+    |         |3-------x-+
+    <--------->        |
+                       |
+                       |
+    +---------+        |
+    | C: Ship |<-------+
+    +---------+
+
+    1: A --> B
+    2: B --> C — yes
+    3: B --> A — no
+
+
+   Subgraphs
+   ────────────────────────
+
+            mermaid (graph)
+    +-----------+
+    | Service   |
+    |           |
+    | +-------+ |
+    | | A: AP |1x------+
+    | | I     |<x------x-+
+    | +-------+ |      | |
+    |           |      | |
+    |           |      | |
+    | +-------+ |      | |
+    | | B: Ca |<x------+ |
+    | | che   | |        |
+    | +-------+ |        |
+    |           |        |
+    |           |        |
+    +-----------+        |
+                         |
+    +-----------+        |
+    | C: Client |2-------+
+    +-----------+
+
+    1: A --> B
+    2: C --> A
+
+
+   Sequence
+   ────────────────────────
+
+         mermaid (sequence)
+     +------+   +------+
+     | A    |   | B    |
+     +------+   +------+
+         1. Request |
+         |--------->|
+         |          |
+         2. Response|
+         |<.........|
+         |          |
+         |          |
+
+
+   Code
+   ────────────────────────
+
+                        lua
+    local answer = 42
+    print(answer)
+

@@ -36,8 +36,19 @@ local M = {}
 ---@field lines string[] original fenced content
 ---@field lang string|nil
 
+---@class MDEyeImageReservation
+---@field key string cached image identity
+---@field row_start integer 0-based first reserved buffer row
+---@field row_end integer 0-based last reserved buffer row
+---@field col integer left edge in display cells
+---@field width integer
+---@field height integer
+
 ---@class MDEyeRenderPlan
 ---@field lines string[]
+---@field text string[] content without container prefixes
+---@field images MDEyeImageReservation[]
+---@field row_keys table<integer, string> semantic diagram row identities
 ---@field marks MDEyeMark[]
 ---@field blocks MDEyeBlockMap[] ordered by row_start; nested blocks follow parents
 ---@field headings MDEyeHeadingMap[]
@@ -51,7 +62,9 @@ local M = {}
 ---@field max_width integer|false false uses the full available window width
 ---@field min_margin integer
 ---@field tab_width integer|nil defaults to 4
----@field mermaid_enabled boolean|nil render supported Mermaid flowcharts; defaults to true
+---@field mermaid_enabled boolean|nil render supported Mermaid diagrams; defaults to true
+---@field mermaid_layout "graph"|"connections"|nil
+---@field image_specs table<integer, MDEyeImageSpec>|nil indexed by source start byte
 ---@field code_wrap boolean|nil wrap fenced lines to the content width
 ---@field measure fun(s: string): integer display cells; defaults to strdisplaywidth
 
@@ -288,6 +301,8 @@ end
 ---@field tab_width integer
 ---@field code_wrap boolean
 ---@field mermaid_enabled boolean
+---@field mermaid_layout "graph"|"connections"
+---@field image_specs table<integer, MDEyeImageSpec>
 local Ctx = {}
 Ctx.__index = Ctx
 
@@ -301,6 +316,11 @@ function Ctx:emit(prefix, frags)
   end
   local plan = self.plan
   local row = #plan.lines
+  local text = {}
+  for _, f in ipairs(frags or {}) do
+    text[#text + 1] = f.text
+  end
+  plan.text[row + 1] = table.concat(text)
   local parts = { string.rep(" ", plan.margin) }
   local col = plan.margin -- margin is ASCII spaces: bytes == cells
   local all = {}
@@ -353,8 +373,11 @@ function Ctx:emit(prefix, frags)
     end
   end
   local line = table.concat(parts)
-  if line:match("^%s*$") then
+  if line:match("^%s*$") and not (frags and frags[#frags] and frags[#frags].reserve) then
     line = line:gsub("%s+$", "")
+    while plan.marks[#plan.marks] and plan.marks[#plan.marks].row == row do
+      plan.marks[#plan.marks] = nil
+    end
   end
   plan.lines[#plan.lines + 1] = line
   return row
@@ -365,7 +388,7 @@ function Ctx:block_mark(row, hl)
   local plan = self.plan
   plan.marks[#plan.marks + 1] = {
     row = row,
-    start_col = plan.margin,
+    start_col = math.min(plan.margin, #plan.lines[row + 1]),
     end_col = #plan.lines[row + 1],
     hl = hl,
     priority = PRIORITY_BLOCK,
@@ -393,6 +416,31 @@ local function render_paragraph(ctx, block, prefix, avail)
     local row = ctx:emit(prefix, lfrags)
     first = first or row
     last = row
+  end
+  local image = ctx.image_specs[block.source.start_byte]
+  if image then
+    local width = math.min(avail, image.max_width)
+    local height = math.max(1, math.min(image.max_height, math.ceil(width * image.aspect * 0.5)))
+    local col = ctx.plan.margin
+    for _, f in ipairs(prefix) do
+      col = col + ctx.measure(f.text)
+    end
+    local start = #ctx.plan.lines
+    for _ = 1, height do
+      -- Real padding keeps backend screenpos() columns accurate, including in quotes.
+      local spacer = frag(string.rep(" ", width))
+      spacer.keep, spacer.reserve = true, true
+      last = ctx:emit({ frag(string.rep(" ", col - ctx.plan.margin)) }, { spacer })
+      ctx.plan.row_keys[last + 1] = "image:" .. image.key
+    end
+    ctx.plan.images[#ctx.plan.images + 1] = {
+      key = image.key,
+      row_start = start,
+      row_end = last,
+      col = col,
+      width = width,
+      height = height,
+    }
   end
   ctx:register_block(block.source, first, last)
 end
@@ -522,15 +570,20 @@ end
 
 ---@param ctx MDEyeLayoutCtx
 local function render_code(ctx, block, prefix, avail)
-  local diagram
+  local diagram, diagram_keys, diagram_mode
   if ctx.mermaid_enabled and block.attrs.diagram then
-    diagram = require("mdeye.mermaid").layout(block.attrs.diagram, avail - 1, ctx.measure)
+    diagram, diagram_keys, diagram_mode = require("mdeye.mermaid").layout(
+      block.attrs.diagram,
+      avail - 1,
+      ctx.measure,
+      ctx.mermaid_layout
+    )
   end
   local first, last
   if block.attrs.lang then
     local lang = block.attrs.lang
     if lang:lower() == "mermaid" and ctx.mermaid_enabled then
-      lang = diagram and "mermaid (connections)" or "mermaid (source)"
+      lang = diagram and ("mermaid (" .. diagram_mode .. ")") or "mermaid (source)"
     end
     for _, chunk in ipairs(code_chunks(lang, math.max(avail, 1), ctx.measure, true)) do
       local pad = math.max(avail - ctx.measure(chunk.text), 0)
@@ -566,6 +619,9 @@ local function render_code(ctx, block, prefix, avail)
       code_frag.keep = true
       local row = ctx:emit(prefix, { code_frag })
       ctx:block_mark(row, "MDEyeCodeBlock")
+      if diagram_keys then
+        ctx.plan.row_keys[row + 1] = diagram_keys[index]
+      end
 
       local generated = ctx.plan.lines[row + 1]
       local text_start = #generated - #text
@@ -955,6 +1011,9 @@ function M.plan(doc, opts)
   local width, margin = M.geometry(opts.usable_width, opts.max_width, opts.min_margin)
   local plan = {
     lines = {},
+    text = {},
+    row_keys = {},
+    images = {},
     marks = {},
     blocks = {},
     headings = {},
@@ -969,6 +1028,8 @@ function M.plan(doc, opts)
     tab_width = opts.tab_width or 4,
     code_wrap = opts.code_wrap == true,
     mermaid_enabled = opts.mermaid_enabled ~= false,
+    mermaid_layout = opts.mermaid_layout or "graph",
+    image_specs = opts.image_specs or {},
   }, Ctx)
 
   ctx:emit({}, nil) -- top padding

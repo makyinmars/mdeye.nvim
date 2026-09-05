@@ -1,4 +1,4 @@
----A conservative Mermaid flowchart subset, with a portable terminal layout.
+---Conservative Mermaid flowchart/sequence parsing and portable layout dispatch.
 ---Unsupported input returns a reason; callers must retain the entire source.
 local M = {}
 
@@ -6,8 +6,12 @@ local M = {}
 ---@field id string
 ---@field label string
 ---@field shape string
+---@field order integer|nil declaration order (flowcharts)
+---@field group string|nil containing subgraph ID
 
 ---@class MDEyeMermaidGraph
+---@field kind "flowchart"
+---@field groups {id: string, label: string, parent: string|nil, order: integer}[]
 ---@field direction string
 ---@field nodes MDEyeMermaidNode[] declaration order
 ---@field edges { from: MDEyeMermaidNode, to: MDEyeMermaidNode, label: string, kind: string }[]
@@ -86,18 +90,23 @@ local function plain_label(text)
     text = text:sub(2, -2)
   end
   -- Do not silently reinterpret HTML, entities, Markdown strings, or escapes.
-  if text == "" or text:find('[<>#`"\\]') or text:find("[%c]") then
+  if text == "" or text:find('[<>#`"\\]') or text:find("[%c]") or text:find("&[%w#]+;") then
     return nil
   end
   return text
 end
 
 ---@param lines string[] original fence content
----@return MDEyeMermaidGraph|nil graph
+---@return MDEyeMermaidGraph|MDEyeSequence|nil graph
 ---@return string|nil reason
 function M.parse(lines)
   if #lines > 500 or #table.concat(lines, "\n") > 65536 then
     return nil, "diagram exceeds native limits"
+  end
+  for _, line in ipairs(lines) do
+    if vim.trim(line) == "sequenceDiagram" then
+      return require("mdeye.sequence").parse(lines)
+    end
   end
   local parts = statements(lines)
   if not parts or not parts[1] then
@@ -107,7 +116,8 @@ function M.parse(lines)
   if (keyword ~= "flowchart" and keyword ~= "graph") or not directions[direction] then
     return nil, "only flowchart/graph is supported"
   end
-  local graph = { direction = direction, nodes = {}, edges = {} }
+  local graph = { kind = "flowchart", direction = direction, nodes = {}, edges = {}, groups = {} }
+  local group_stack, group_ids, order = {}, {}, 0
   local by_id = {}
   local function node(text)
     local id, tail = text:match("^([%a_][%w_]*)%s*(.*)$")
@@ -144,9 +154,22 @@ function M.parse(lines)
     end
     local found = by_id[id]
     if not found then
-      found = { id = id, label = id, shape = "rectangle" }
+      order = order + 1
+      found = {
+        id = id,
+        label = id,
+        shape = "rectangle",
+        order = order,
+        group = group_stack[#group_stack],
+      }
       by_id[id] = found
       graph.nodes[#graph.nodes + 1] = found
+    end
+    if group_stack[#group_stack] and not found.group then
+      found.group = group_stack[#group_stack]
+    end
+    if group_ids[id] then
+      return nil
     end
     if label then
       found.label, found.shape = label, shape
@@ -156,7 +179,27 @@ function M.parse(lines)
   local edge_kinds = { "-->", "---", "-.->", "==>" }
   parts[1] = rest
   for _, statement in ipairs(parts) do
-    if statement ~= "" then
+    if statement:match("^subgraph%s+") then
+      local id, title = statement:match("^subgraph%s+([%a_][%w_]*)%s*%[(.*)%]$")
+      if not id then
+        id = statement:match("^subgraph%s+([%a_][%w_]*)$")
+        title = id
+      end
+      title = title and plain_label(title)
+      if not id or not title or group_ids[id] or by_id[id] or #group_stack >= 8 then
+        return nil, "unsupported subgraph"
+      end
+      order = order + 1
+      graph.groups[#graph.groups + 1] =
+        { id = id, label = title, parent = group_stack[#group_stack], order = order }
+      group_ids[id] = true
+      group_stack[#group_stack + 1] = id
+    elseif statement == "end" then
+      if #group_stack == 0 then
+        return nil, "unmatched subgraph end"
+      end
+      group_stack[#group_stack] = nil
+    elseif statement ~= "" then
       local from, tail = node(statement)
       if not from then
         return nil, "unsupported node or directive"
@@ -205,6 +248,9 @@ function M.parse(lines)
     if #graph.nodes > 100 then
       return nil, "diagram exceeds native limits"
     end
+  end
+  if #group_stack > 0 then
+    return nil, "unclosed subgraph"
   end
   if #graph.nodes == 0 then
     return nil, "empty diagram"
@@ -256,7 +302,7 @@ end
 ---@param width integer available display cells
 ---@param measure fun(text: string): integer
 ---@return string[]|nil lines connected pairs; repeated IDs denote the same node
-function M.layout(graph, width, measure)
+local function connections(graph, width, measure)
   if width < 8 then
     return nil
   end
@@ -334,6 +380,29 @@ function M.layout(graph, width, measure)
     end
   end
   return out
+end
+
+---Layout native graphs/sequences, retaining a compact connection fallback.
+---@param graph MDEyeMermaidGraph|MDEyeSequence
+---@param width integer
+---@param measure fun(text: string): integer
+---@param mode "graph"|"connections"|nil
+---@return string[]|nil, table<integer, string>|nil, string|nil
+function M.layout(graph, width, measure, mode)
+  if graph.kind == "sequence" then
+    local lines, keys = require("mdeye.sequence").layout(graph, width, measure)
+    return lines, keys, "sequence"
+  end
+  if mode ~= "connections" then
+    local lines, keys = require("mdeye.graph").layout(graph, width, measure)
+    if lines then
+      return lines, keys, "graph"
+    end
+  end
+  if #(graph.groups or {}) > 0 then
+    return nil
+  end -- never drop grouping
+  return connections(graph, width, measure), {}, "connections"
 end
 
 return M

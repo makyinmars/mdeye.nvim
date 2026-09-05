@@ -51,7 +51,7 @@ local M = {}
 ---@field lang string|nil code fence label
 ---@field lines string[]|nil code/html content
 ---@field highlights MDEyeCodeCapture[]|nil code syntax captures
----@field diagram MDEyeMermaidGraph|nil parsed Mermaid flowchart
+---@field diagram MDEyeMermaidGraph|MDEyeSequence|nil parsed Mermaid diagram
 ---@field diagram_error string|nil native Mermaid fallback reason
 ---@field highlight_lang string|nil resolved code parser language
 ---@field header MDEyeTableRow|nil table header
