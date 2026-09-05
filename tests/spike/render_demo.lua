@@ -1,9 +1,10 @@
 -- Pipeline smoke check: parse the fixture and print the laid-out lines.
--- Run: nvim --headless -l tests/spike/render_demo.lua [usable_width]
+-- Run: nvim --headless -l tests/spike/render_demo.lua [usable_width] [fixture]
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local usable = tonumber(_G.arg and _G.arg[1]) or 100
 
-local bufnr = vim.fn.bufadd("tests/fixtures/comprehensive.md")
+local fixture = (_G.arg and _G.arg[2]) or "tests/fixtures/comprehensive.md"
+local bufnr = vim.fn.bufadd(fixture)
 vim.fn.bufload(bufnr)
 
 local document = require("mdeye.document")

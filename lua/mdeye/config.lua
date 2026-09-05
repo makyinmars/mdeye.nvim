@@ -7,6 +7,7 @@ local M = {}
 ---@field min_margin integer
 ---@field debounce_ms integer
 ---@field code { wrap: boolean }
+---@field mermaid { enabled: boolean }
 
 ---@type MDEyeConfig
 local defaults = {
@@ -14,6 +15,7 @@ local defaults = {
   max_width = 88,
   min_margin = 3,
   debounce_ms = 120,
+  mermaid = { enabled = true },
   code = {
     wrap = false,
   },
@@ -34,6 +36,10 @@ local function validate(opts)
     end, true, "number|false")
     vim.validate("min_margin", opts.min_margin, "number", true)
     vim.validate("debounce_ms", opts.debounce_ms, "number", true)
+    vim.validate("mermaid", opts.mermaid, "table", true)
+    if opts.mermaid then
+      vim.validate("mermaid.enabled", opts.mermaid.enabled, "boolean", true)
+    end
     vim.validate("code", opts.code, "table", true)
     if opts.code then
       vim.validate("code.wrap", opts.code.wrap, "boolean", true)
@@ -83,6 +89,7 @@ local hl_defaults = {
   MDEyeStrike = { "@markup.strikethrough" },
   MDEyeCode = { "@markup.raw.markdown_inline", "@markup.raw", "String" },
   MDEyeCodeBlock = { "CursorLine" },
+  MDEyeDiagram = { "@markup.raw", "String" },
   MDEyeLink = { "@markup.link.label", "Underlined" },
   MDEyeFootnote = { "@markup.link", "Special" },
   MDEyeQuote = { "@markup.quote", "Comment" },

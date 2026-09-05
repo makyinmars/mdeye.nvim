@@ -51,6 +51,8 @@ local M = {}
 ---@field lang string|nil code fence label
 ---@field lines string[]|nil code/html content
 ---@field highlights MDEyeCodeCapture[]|nil code syntax captures
+---@field diagram MDEyeMermaidGraph|nil parsed Mermaid flowchart
+---@field diagram_error string|nil native Mermaid fallback reason
 ---@field highlight_lang string|nil resolved code parser language
 ---@field header MDEyeTableRow|nil table header
 ---@field rows MDEyeTableRow[]|nil table body
@@ -760,7 +762,13 @@ local function convert_code(ctx, node)
       end
     end
   end
-  local highlights, highlight_lang = code_highlights(lines, lang)
+  local diagram, diagram_error
+  local highlights, highlight_lang = {}, nil
+  if lang and lang:lower() == "mermaid" then
+    diagram, diagram_error = require("mdeye.mermaid").parse(lines)
+  else
+    highlights, highlight_lang = code_highlights(lines, lang)
+  end
   return {
     kind = "code",
     attrs = {
@@ -768,6 +776,8 @@ local function convert_code(ctx, node)
       lines = lines,
       highlights = highlights,
       highlight_lang = highlight_lang,
+      diagram = diagram,
+      diagram_error = diagram_error,
     },
     source = span_from_node(node),
   }

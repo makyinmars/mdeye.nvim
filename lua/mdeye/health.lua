@@ -102,7 +102,9 @@ function M.check()
     table.sort(labels)
     for _, label in ipairs(labels) do
       local status = code_languages[label]
-      if status.highlight_lang then
+      if label:lower() == "mermaid" then
+        health.info("Mermaid: native flowchart connections; unsupported syntax stays as source")
+      elseif status.highlight_lang then
         health.ok(
           ("fenced-code highlights available: %s -> %s"):format(label, status.highlight_lang)
         )

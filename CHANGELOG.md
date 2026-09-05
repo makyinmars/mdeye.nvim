@@ -6,6 +6,11 @@ All notable changes to mdeye.nvim will be documented in this file.
 
 ### Added
 
+- Dependency-free Mermaid flowchart connection diagrams with directional arrows,
+  edge labels, approximate node shapes, and width-aware stacking. Unsupported syntax
+  and oversized diagrams retain the complete source with a fallback reason.
+- `mermaid.enabled` to select native diagrams or source, and `MDEyeDiagram` highlights.
+  Source jumps, original-code copying, and live updates work on rendered diagrams.
 - Tree-sitter syntax highlighting for fenced code, with language aliases and a plain-text
   fallback when a parser or highlight query is unavailable.
 - `:MDEye copy-code` and preview-local `yc` for copying original fenced content, plus

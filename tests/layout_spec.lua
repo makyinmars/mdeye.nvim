@@ -430,3 +430,52 @@ describe("layout", function()
     ok(not code_line:find("\t", 1, true), "tabs expanded")
   end)
 end)
+
+describe("Mermaid layout integration", function()
+  local source = "```mermaid\nflowchart LR\nA[Start] -->|next| B[Finish]\n```"
+
+  it("renders diagrams with source spans, original copy data, and highlights", function()
+    local plan = make_plan(source)
+    local text = table.concat(plan.lines, "\n")
+    ok(text:find("A: Start", 1, true))
+    ok(text:find("next -->", 1, true))
+    ok(not text:find("flowchart LR", 1, true))
+    eq({ "flowchart LR", "A[Start] -->|next| B[Finish]" }, plan.code_blocks[1].lines)
+    eq(0, plan.code_blocks[1].source.start_row)
+    ok(#marks_with(plan, "MDEyeDiagram") > 0)
+    for _, mark in ipairs(plan.marks) do
+      ok(mark.start_col >= 0 and mark.end_col <= #plan.lines[mark.row + 1])
+    end
+  end)
+
+  it("reflows the same parsed graph and respects nested container widths", function()
+    local doc = make_doc(source)
+    local original = vim.deepcopy(doc)
+    for _, pane_width in ipairs({ 24, 40, 100 }) do
+      local plan =
+        layout.plan(doc, { usable_width = pane_width, max_width = false, min_margin = 0 })
+      for _, line in ipairs(plan.lines) do
+        ok(vim.fn.strdisplaywidth(line) <= pane_width, line)
+      end
+      local nested =
+        make_plan("> " .. source:gsub("\n", "\n> "), { usable_width = pane_width, min_margin = 0 })
+      for _, line in ipairs(nested.lines) do
+        ok(vim.fn.strdisplaywidth(line) <= pane_width, line)
+      end
+    end
+    eq(original, doc)
+  end)
+
+  it("keeps original source when disabled, unsupported, or too narrow", function()
+    local disabled = make_plan(source, { mermaid_enabled = false })
+    ok(table.concat(disabled.lines, "\n"):find("A[Start]", 1, true))
+    local narrow = make_plan(source, { usable_width = 6 })
+    ok(table.concat(narrow.lines, "\n"):find("flowchart LR", 1, true))
+    local unsupported = make_plan("```mermaid\nflowchart LR\nA --> B\nstyle A fill:red\n```")
+    local text = table.concat(unsupported.lines, "\n")
+    ok(text:find("mermaid (source)", 1, true))
+    ok(text:find("A --> B", 1, true))
+    ok(text:find("style A fill:red", 1, true))
+    eq(0, #marks_with(unsupported, "MDEyeDiagram"))
+  end)
+end)

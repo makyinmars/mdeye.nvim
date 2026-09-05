@@ -13,6 +13,7 @@ theme-friendly highlights, in the spirit of Zed's native Markdown preview.
 - Emphasis, strong, strikethrough, inline code, links (destinations hidden), lists,
   task lists, block quotes, GitHub-style alerts, syntax-highlighted fenced code, footnotes,
   thematic breaks, and GitHub-style tables.
+- Native Mermaid flowchart connections with labeled boxes and arrows, plus source fallback.
 - Live, debounced updates from unsaved source edits; reflow on window resize that keeps
   your reading position.
 - Jump back to the exact source block with `<CR>`; follow links and document anchors.
@@ -106,6 +107,7 @@ require("mdeye").setup({
   max_width = 88,     -- maximum reading width; false follows the window width
   min_margin = 3,     -- minimum margin on each side
   debounce_ms = 120,  -- live-update debounce
+  mermaid = { enabled = true }, -- native flowchart connections; false shows source
   code = {
     wrap = false,     -- false: horizontal scrolling; true: display-cell wrapping
   },
@@ -122,7 +124,7 @@ Every group uses `default link` semantics, so your colorscheme and explicit
 
 `MDEyeText`, `MDEyeMuted`, `MDEyeHeading1`–`MDEyeHeading6`, `MDEyeHeadingRule`,
 `MDEyeEmphasis`, `MDEyeStrong`, `MDEyeStrike`, `MDEyeCode`, `MDEyeCodeBlock`,
-`MDEyeLink`, `MDEyeFootnote`, `MDEyeQuote`, `MDEyeListMarker`,
+`MDEyeDiagram`, `MDEyeLink`, `MDEyeFootnote`, `MDEyeQuote`, `MDEyeListMarker`,
 `MDEyeTableBorder`, `MDEyeTaskChecked`, `MDEyeTaskUnchecked`, `MDEyeAlertNote`,
 `MDEyeAlertTip`, `MDEyeAlertImportant`, `MDEyeAlertWarning`, `MDEyeAlertCaution`
 
@@ -153,6 +155,45 @@ vim.api.nvim_set_hl(0, "MDEyeHeading1", { fg = "#c6a0f6", bold = true })
   code lines scroll horizontally by default or wrap when `code.wrap` is true; tables shrink
   and wrap cells instead.
 - Unsupported raw HTML renders as readable plain text; nothing is executed.
+
+## Mermaid diagrams
+
+Fences labeled `mermaid` render a portable text view of common flowchart connections:
+
+```mermaid
+flowchart LR
+  A[Draft] -->|review| B{Approved?}
+  B -->|yes| C[Publish]
+  B -->|no| A
+```
+
+The native renderer shows **one connected pair per edge**, in source order. Node IDs
+remain visible: repeated IDs represent the same node, including branches and cycles.
+This is a connection view, not Mermaid's full graph layout. `LR`/`RL` pairs stack when
+space is limited; labels wrap by display cells. `TD`/`TB`/`BT` pairs stack vertically.
+
+Supported syntax follows a subset of the [Mermaid flowchart syntax](https://mermaid.js.org/syntax/flowchart.html):
+
+- `flowchart` or `graph`, with `LR`, `RL`, `TD`, `TB`, or `BT` direction.
+- ASCII node IDs starting with a letter or underscore, followed by letters, digits, or underscores.
+- Plain nodes, `[rectangle]`, `(rounded)`, `([stadium])`, `((circle))`, `[[subroutine]]`,
+  and `{decision}` labels. Shapes use approximate ASCII borders; circles and rounded
+  nodes share a border, and subroutines use rectangular borders.
+- `-->`, `---`, `-.->`, `==>`, chains, `-->|label|`, and `-- label -->` connections.
+- One statement per line or semicolon, `%%` comments, quoted single-line labels,
+  later label updates, isolated nodes, branches, and cycles.
+
+Other diagram types (including sequence diagrams), subgraphs, styling, directives,
+click actions, HTML/entities, Markdown labels, and unsupported syntax keep the **entire
+fence as source**, with a reason shown above it. No partial diagram is displayed.
+Native limits are 100 nodes, 200 edges, 500 source lines, and 64 KiB per fence; larger
+inputs also show source. No browser, executable, network service, or Mermaid parser
+installation is needed. `:checkhealth mdeye` recognizes the native renderer.
+
+`yc` / `:MDEye copy-code` always copies the original Mermaid text; `<CR>` jumps to the
+source fence. Set `mermaid = { enabled = false }` to show source for all diagrams.
+The `MDEyeDiagram` highlight group controls diagram text.
+See [rendered examples, verification, and next improvements](docs/mermaid-evidence.md).
 
 ## Terminal and image compatibility
 
@@ -207,8 +248,9 @@ nvim --headless -l tests/run.lua tests/session_spec.lua
 # Formatting
 stylua --check lua plugin tests
 
-# Benchmark
+# Benchmarks
 nvim --headless -l tests/bench/bench.lua
+nvim --headless -l tests/bench/mermaid.lua
 
 # Render the comprehensive fixture to stdout at a given width
 nvim --headless -l tests/spike/render_demo.lua 100

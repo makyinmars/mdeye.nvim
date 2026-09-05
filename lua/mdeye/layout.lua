@@ -51,6 +51,7 @@ local M = {}
 ---@field max_width integer|false false uses the full available window width
 ---@field min_margin integer
 ---@field tab_width integer|nil defaults to 4
+---@field mermaid_enabled boolean|nil render supported Mermaid flowcharts; defaults to true
 ---@field code_wrap boolean|nil wrap fenced lines to the content width
 ---@field measure fun(s: string): integer display cells; defaults to strdisplaywidth
 
@@ -286,6 +287,7 @@ end
 ---@field measure fun(s: string): integer
 ---@field tab_width integer
 ---@field code_wrap boolean
+---@field mermaid_enabled boolean
 local Ctx = {}
 Ctx.__index = Ctx
 
@@ -520,29 +522,47 @@ end
 
 ---@param ctx MDEyeLayoutCtx
 local function render_code(ctx, block, prefix, avail)
+  local diagram
+  if ctx.mermaid_enabled and block.attrs.diagram then
+    diagram = require("mdeye.mermaid").layout(block.attrs.diagram, avail - 1, ctx.measure)
+  end
   local first, last
   if block.attrs.lang then
     local lang = block.attrs.lang
-    local pad = math.max(avail - ctx.measure(lang), 0)
-    local row = ctx:emit(prefix, {
-      frag(string.rep(" ", pad)),
-      frag(lang, { "MDEyeMuted" }),
-    })
-    first = row
-    last = row
+    if lang:lower() == "mermaid" and ctx.mermaid_enabled then
+      lang = diagram and "mermaid (connections)" or "mermaid (source)"
+    end
+    for _, chunk in ipairs(code_chunks(lang, math.max(avail, 1), ctx.measure, true)) do
+      local pad = math.max(avail - ctx.measure(chunk.text), 0)
+      local row = ctx:emit(prefix, {
+        frag(string.rep(" ", pad)),
+        frag(chunk.text, { "MDEyeMuted" }),
+      })
+      first = first or row
+      last = row
+    end
+    if lang == "mermaid (source)" then
+      local reason = block.attrs.diagram_error or "pane too narrow for diagram"
+      local runs = { { kind = "text", text = reason } }
+      for _, line in ipairs(wrap_runs(runs, avail, ctx.measure, { "MDEyeMuted" })) do
+        last = ctx:emit(prefix, line)
+      end
+    end
   end
   local expand = string.rep(" ", ctx.tab_width)
-  for index, line in ipairs(block.attrs.lines) do
+  for index, line in ipairs(diagram or block.attrs.lines) do
     local expanded = line:gsub("\t", expand)
     for _, chunk in
-      ipairs(code_chunks(expanded, math.max(avail - 1, 1), ctx.measure, ctx.code_wrap))
+      ipairs(
+        code_chunks(expanded, math.max(avail - 1, 1), ctx.measure, not diagram and ctx.code_wrap)
+      )
     do
       local text = " " .. chunk.text
       local w = ctx.measure(text)
       if w < avail then
         text = text .. string.rep(" ", avail - w)
       end
-      local code_frag = frag(text)
+      local code_frag = frag(text, diagram and { "MDEyeDiagram" } or nil)
       code_frag.keep = true
       local row = ctx:emit(prefix, { code_frag })
       ctx:block_mark(row, "MDEyeCodeBlock")
@@ -948,6 +968,7 @@ function M.plan(doc, opts)
     measure = measure,
     tab_width = opts.tab_width or 4,
     code_wrap = opts.code_wrap == true,
+    mermaid_enabled = opts.mermaid_enabled ~= false,
   }, Ctx)
 
   ctx:emit({}, nil) -- top padding

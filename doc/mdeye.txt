@@ -130,6 +130,7 @@ Defaults: >
       max_width = 88,     -- maximum reading width; false follows the window
       min_margin = 3,     -- minimum margin on each side
       debounce_ms = 120,  -- live-update debounce in milliseconds
+      mermaid = { enabled = true }, -- false: show Mermaid source
       code = {
         wrap = false,     -- false: scroll; true: display-cell wrapping
       },
@@ -156,6 +157,7 @@ colors are hard-coded, and explicit user highlights are never overwritten.
   MDEyeStrike		Strikethrough text.
   MDEyeCode		Inline code.
   MDEyeCodeBlock	Fenced code block background.
+  MDEyeDiagram		Native Mermaid connection text.
   MDEyeLink		Link labels.
   MDEyeFootnote		Footnote references and definition markers.
   MDEyeQuote		Block-quote text and gutter.
@@ -202,6 +204,37 @@ GitHub-style `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and
 `[!CAUTION]` markers at the start of a quote render as semantic alert titles.
 Their title and gutter link to diagnostic highlight groups; nested prose,
 lists, links, and code continue through the ordinary Markdown layout path.
+
+Mermaid fences                                         *mdeye-mermaid*
+Fences labeled `mermaid` use native ASCII connection diagrams by default.
+Each edge is a separate connected pair, in source order. Repeated node IDs
+identify shared nodes, branches, and cycles. This is a connection view, not
+Mermaid's full graph layout. LR/RL pairs stack in narrow panes; TD/TB/BT pairs
+stack vertically. Labels wrap by display cells. Example: >
+
+    ```mermaid
+    flowchart LR
+      A[Draft] -->|review| B{Approved?}
+      B -->|yes| C[Publish]
+    ```
+<
+Supported: `flowchart`/`graph`, LR/RL/TD/TB/BT, ASCII letter/underscore IDs
+followed by letters/digits/underscores, plain nodes, [rectangle], (rounded),
+([stadium]), ((circle)), [[subroutine]], {decision}, -->/---/-.->/==> edges,
+chains, -->|label| and -- label --> edges, semicolon-separated statements,
+%% comments, single-line quoted labels, and later node-label updates.
+Shapes are approximate: rounded/circle/stadium nodes share a border and
+subroutines use rectangular borders. IDs remain visible beside node labels.
+
+Unsupported diagram types, subgraphs, styling, directives, click actions,
+HTML/entities, Markdown labels, and incomplete input retain the whole source
+with a fallback reason. Native limits: 100 nodes, 200 edges, 500 lines, 64 KiB.
+A pane too narrow for a box also shows source. No external runtime is needed.
+
+Set `mermaid = { enabled = false }` to always display Mermaid source.
+`yc` and |:MDEye| copy-code copy original fence content; <CR> jumps to its
+source. Customize the `MDEyeDiagram` highlight group with :highlight as for other
+mdeye groups.
 
 Code and footnotes~
 Fenced code uses the Tree-sitter parser and highlight query matching its

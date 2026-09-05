@@ -250,6 +250,7 @@ local function update(session, opts)
     max_width = cfg.max_width,
     min_margin = cfg.min_margin,
     code_wrap = cfg.code.wrap,
+    mermaid_enabled = cfg.mermaid.enabled,
   })
 
   local anchor = (opts and opts.anchor) and capture_anchor(session) or nil
