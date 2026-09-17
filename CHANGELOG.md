@@ -6,6 +6,11 @@ All notable changes to mdeye.nvim will be documented in this file.
 
 ### Added
 
+- Optional Mermaid PNG rendering through `mmdc` (mermaid-cli), with a disk cache,
+  `go` / `:MDEye open-image` to open the file in an OS viewer, and inline display
+  through the existing image.nvim adapter. Native ASCII remains the fallback.
+- Architecture notes in `docs/architecture.md`, with Mermaid pipeline, fallback,
+  and live-update diagrams plus rendered PNG captures.
 - Shared-node Mermaid graphs with routed branches/cycles, nested subgraph containers,
   and a compact connection fallback. `mermaid.layout` selects the graph or connection view.
 - Native Mermaid sequence diagrams with participants, messages, self-calls, activations,

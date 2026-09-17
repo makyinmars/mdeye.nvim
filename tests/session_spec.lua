@@ -4,7 +4,7 @@ local mdeye = require("mdeye")
 
 local root = vim.g.mdeye_test_root
 
-mdeye.setup({ debounce_ms = 20 })
+mdeye.setup({ debounce_ms = 20, mermaid = { image = { enabled = "off" } } })
 
 local function make_source(lines, name)
   local bufnr = vim.api.nvim_create_buf(true, false)
@@ -70,9 +70,9 @@ describe("session", function()
   end)
 
   it("accepts an uncapped reading width", function()
-    mdeye.setup({ debounce_ms = 20, max_width = false })
+    mdeye.setup({ debounce_ms = 20, max_width = false, mermaid = { image = { enabled = "off" } } })
     eq(false, require("mdeye.config").options.max_width)
-    mdeye.setup({ debounce_ms = 20 })
+    mdeye.setup({ debounce_ms = 20, mermaid = { image = { enabled = "off" } } })
   end)
 
   it("rejects non-Markdown buffers with one notification", function()
@@ -545,7 +545,7 @@ describe("Mermaid sessions", function()
     ok(config.setup({ mermaid = { enabled = "yes" } }))
     eq(nil, config.setup({ mermaid = { enabled = false } }))
     eq(false, config.options.mermaid.enabled)
-    mdeye.setup({ debounce_ms = 20 })
+    mdeye.setup({ debounce_ms = 20, mermaid = { image = { enabled = "off" } } })
   end)
 
   it("copies source, reflows, updates unsaved diagrams, and jumps to the fence", function()

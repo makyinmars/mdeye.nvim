@@ -13,7 +13,8 @@ theme-friendly highlights, in the spirit of Zed's native Markdown preview.
 - Emphasis, strong, strikethrough, inline code, links (destinations hidden), lists,
   task lists, block quotes, GitHub-style alerts, syntax-highlighted fenced code, footnotes,
   thematic breaks, and GitHub-style tables.
-- Native Mermaid shared-node flowcharts, subgraph containers, and sequence diagrams.
+- Native Mermaid shared-node flowcharts, subgraph containers, and sequence diagrams,
+  plus optional `mmdc` PNG rendering you can open as an image.
 - Collapsible sections and code blocks; reading positions survive edits and reflow.
 - Optional local images through an independently configured `image.nvim` backend.
 - Live, debounced updates from unsaved source edits; reflow on window resize that keeps
@@ -99,6 +100,7 @@ require("mdeye").open({ mode = "current" | "split" | "tab" })
 require("mdeye").close()
 require("mdeye").toggle({ mode = "current" })
 require("mdeye").copy_code()
+require("mdeye").open_image()
 ```
 
 ## Configuration
@@ -111,7 +113,17 @@ require("mdeye").setup({
   max_width = 88,     -- maximum reading width; false follows the window width
   min_margin = 3,     -- minimum margin on each side
   debounce_ms = 120,  -- live-update debounce
-  mermaid = { enabled = true, layout = "graph" }, -- or "connections"
+  mermaid = {
+    enabled = true,
+    layout = "graph", -- or "connections"
+    image = {
+      enabled = "auto", -- "auto" | "on" | "off"
+      command = nil, -- nil detects `mmdc`; or an executable path
+      timeout_ms = 1500,
+      theme = "auto", -- "auto" | "default" | "dark"
+      background = "transparent",
+    },
+  },
   images = {
     enabled = false,  -- opt in after configuring image.nvim
     max_width = 60,   -- display cells
@@ -224,8 +236,28 @@ See the official [flowchart](https://mermaid.js.org/syntax/flowchart.html) and
 [sequence](https://mermaid.js.org/syntax/sequenceDiagram.html) syntax references.
 
 `yc` / `:MDEye copy-code` always copies original Mermaid text; `<CR>` jumps to the
-source fence. Set `mermaid.enabled = false` to show source for every diagram.
-`MDEyeDiagram` controls diagram text highlights.
+source fence unless the cursor is on the `open image` link. Set `mermaid.enabled = false`
+to show source for every diagram. `MDEyeDiagram` controls diagram text highlights.
+
+### Mermaid as images
+
+When `mermaid.image.enabled` is `"auto"` (default) or `"on"` and
+[mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) is on `PATH`,
+fences are rendered to a cached PNG. That is how pie charts, styled flowcharts,
+and other syntax the native ASCII subset rejects become real diagrams.
+
+```sh
+npm install -g @mermaid-js/mermaid-cli
+```
+
+Once a PNG exists, the preview shows `mermaid (image)` and an `open image` link.
+`go` or `:MDEye open-image` opens that file in the OS viewer. Inline graphics
+also need `images.enabled = true` and image.nvim; without them the PNG still
+opens with `go`.
+
+Fallback order: ready PNG, then native ASCII, then the original source with a
+reason. Rendering is asynchronous so the first paint never waits on Chromium.
+Set `mermaid.image.enabled = "off"` to keep ASCII only.
 
 ## Reading position and folds
 

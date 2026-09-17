@@ -12,7 +12,8 @@ function M.check()
     return
   end
 
-  if require("mdeye.config").options.images.enabled then
+  local cfg = require("mdeye.config").options
+  if cfg.images.enabled then
     local backend, reason = require("mdeye.images").available()
     if backend then
       health.ok("optional local images: image.nvim available")
@@ -21,6 +22,25 @@ function M.check()
     end
   else
     health.info("local images disabled; linked alt text is used")
+  end
+
+  local mermaid_image = require("mdeye.mermaid_image")
+  if cfg.mermaid.image.enabled == "off" then
+    health.info("mermaid images disabled; native ASCII or source is used")
+  else
+    local backend, reason = mermaid_image.available(cfg.mermaid.image)
+    if backend then
+      health.ok("mermaid images: " .. backend.bin)
+      if cfg.images.enabled and require("mdeye.images").available() then
+        health.ok("inline mermaid images: image.nvim available")
+      else
+        health.info("PNG open-in-viewer still works; inline mermaid images need image.nvim")
+      end
+    elseif cfg.mermaid.image.enabled == "on" then
+      health.warn((reason or "mmdc is unavailable") .. "; mermaid fences keep ASCII or source")
+    else
+      health.info((reason or "mmdc is unavailable") .. "; mermaid fences keep ASCII or source")
+    end
   end
 
   local document = require("mdeye.document")
@@ -66,6 +86,9 @@ function M.check()
       )
       if state.image_status then
         health.warn(state.image_status)
+      end
+      if state.mermaid_image_status then
+        health.warn(state.mermaid_image_status)
       end
       local issues = {}
       if not state.source_valid then
@@ -114,7 +137,7 @@ function M.check()
       local status = code_languages[label]
       if label:lower() == "mermaid" then
         health.info(
-          "Mermaid: shared graphs, subgraphs, sequences; unsupported syntax stays as source"
+          "Mermaid: native ASCII graphs/sequences; optional mmdc PNG when mermaid.image is on"
         )
       elseif status.highlight_lang then
         health.ok(

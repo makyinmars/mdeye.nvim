@@ -1,6 +1,13 @@
 ---Configuration defaults, validation, and highlight initialization.
 local M = {}
 
+---@class MDEyeMermaidImageConfig
+---@field enabled "auto"|"on"|"off"
+---@field command string|nil mmdc-compatible executable; nil detects `mmdc`
+---@field timeout_ms integer
+---@field theme "auto"|"default"|"dark"
+---@field background string
+
 ---@class MDEyeConfig
 ---@field open "current"|"split"|"tab"
 ---@field max_width integer|false false uses the full available window width
@@ -8,7 +15,7 @@ local M = {}
 ---@field debounce_ms integer
 ---@field code { wrap: boolean }
 ---@field images { enabled: boolean, max_width: integer, max_height: integer, max_file_size: integer, max_images: integer }
----@field mermaid { enabled: boolean, layout: "graph"|"connections" }
+---@field mermaid { enabled: boolean, layout: "graph"|"connections", image: MDEyeMermaidImageConfig }
 
 ---@type MDEyeConfig
 local defaults = {
@@ -16,7 +23,17 @@ local defaults = {
   max_width = 88,
   min_margin = 3,
   debounce_ms = 120,
-  mermaid = { enabled = true, layout = "graph" },
+  mermaid = {
+    enabled = true,
+    layout = "graph",
+    image = {
+      enabled = "auto",
+      command = nil,
+      timeout_ms = 1500,
+      theme = "auto",
+      background = "transparent",
+    },
+  },
   images = {
     enabled = false,
     max_width = 60,
@@ -50,6 +67,21 @@ local function validate(opts)
       vim.validate("mermaid.layout", opts.mermaid.layout, function(value)
         return value == nil or value == "graph" or value == "connections"
       end, true, '"graph"|"connections"')
+      vim.validate("mermaid.image", opts.mermaid.image, "table", true)
+      if opts.mermaid.image then
+        vim.validate("mermaid.image.enabled", opts.mermaid.image.enabled, function(value)
+          return value == nil or value == "auto" or value == "on" or value == "off"
+        end, true, '"auto"|"on"|"off"')
+        vim.validate("mermaid.image.command", opts.mermaid.image.command, "string", true)
+        vim.validate("mermaid.image.timeout_ms", opts.mermaid.image.timeout_ms, function(v)
+          return v == nil
+            or (type(v) == "number" and v > 0 and v < math.huge and v == math.floor(v))
+        end, true, "positive integer")
+        vim.validate("mermaid.image.theme", opts.mermaid.image.theme, function(value)
+          return value == nil or value == "auto" or value == "default" or value == "dark"
+        end, true, '"auto"|"default"|"dark"')
+        vim.validate("mermaid.image.background", opts.mermaid.image.background, "string", true)
+      end
     end
     vim.validate("images", opts.images, "table", true)
     if opts.images then

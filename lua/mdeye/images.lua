@@ -75,8 +75,9 @@ end
 ---@param session MDEyeSession
 ---@param doc MDEyeDocument
 ---@param opts table
+---@param extras table<integer, string>|nil mermaid PNG paths keyed by source start byte
 ---@return table<integer, MDEyeImageSpec>
-function M.prepare(session, doc, opts)
+function M.prepare(session, doc, opts, extras)
   local specs = {}
   session.image_status = nil
   if not opts.enabled then
@@ -91,14 +92,9 @@ function M.prepare(session, doc, opts)
   end
   session.image_cache = session.image_cache or {}
   local seen, occurrences, count = {}, {}, 0
-  local source = vim.api.nvim_buf_get_name(session.src_buf)
-  local base = source ~= "" and vim.fs.dirname(source) or vim.fn.getcwd()
-  walk(doc.blocks, function(block)
-    if block.kind ~= "paragraph" or #(block.runs or {}) ~= 1 or block.runs[1].kind ~= "image" then
-      return
-    end
-    local path = local_path(block.runs[1].target, base)
-    local stat = path and vim.uv.fs_stat(path)
+
+  local function attach(path, start_byte, key)
+    local stat = vim.uv.fs_stat(path)
     if not stat or stat.type ~= "file" or stat.size > opts.max_file_size then
       return
     end
@@ -106,8 +102,6 @@ function M.prepare(session, doc, opts)
     if count > opts.max_images then
       return
     end
-    occurrences[path] = (occurrences[path] or 0) + 1
-    local key = path .. ":" .. occurrences[path]
     local signature = ("%d:%d:%d"):format(stat.size, stat.mtime.sec, stat.mtime.nsec)
     local entry = session.image_cache[key]
     if entry and (entry.signature ~= signature or entry.window ~= session.owner_win) then
@@ -145,14 +139,31 @@ function M.prepare(session, doc, opts)
       and type(img.image_height) == "number"
       and img.image_height > 0
     then
-      specs[block.source.start_byte] = {
+      specs[start_byte] = {
         key = key,
         aspect = img.image_height / img.image_width,
         max_width = opts.max_width,
         max_height = opts.max_height,
       }
     end
+  end
+
+  local source = vim.api.nvim_buf_get_name(session.src_buf)
+  local base = source ~= "" and vim.fs.dirname(source) or vim.fn.getcwd()
+  walk(doc.blocks, function(block)
+    if block.kind ~= "paragraph" or #(block.runs or {}) ~= 1 or block.runs[1].kind ~= "image" then
+      return
+    end
+    local path = local_path(block.runs[1].target, base)
+    if not path then
+      return
+    end
+    occurrences[path] = (occurrences[path] or 0) + 1
+    attach(path, block.source.start_byte, path .. ":" .. occurrences[path])
   end)
+  for start_byte, path in pairs(extras or {}) do
+    attach(path, start_byte, path .. ":mermaid:" .. start_byte)
+  end
   for key, entry in pairs(session.image_cache) do
     if not seen[key] then
       clear(entry)

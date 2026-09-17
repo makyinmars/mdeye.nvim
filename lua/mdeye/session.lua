@@ -9,6 +9,7 @@ local layout = require("mdeye.layout")
 local render = require("mdeye.render")
 local view = require("mdeye.view")
 local images = require("mdeye.images")
+local mermaid_image = require("mdeye.mermaid_image")
 
 local M = {}
 
@@ -25,6 +26,10 @@ local M = {}
 ---@field folds table[]|nil
 ---@field image_cache table|nil
 ---@field image_status string|nil
+---@field mermaid_images table<integer, MDEyeMermaidImageState>|nil
+---@field mermaid_cache table|nil
+---@field mermaid_jobs table|nil
+---@field mermaid_image_status string|nil
 ---@field augroup integer
 ---@field timer uv.uv_timer_t|nil
 ---@field generation integer
@@ -77,6 +82,7 @@ end
 ---@field owner_valid boolean
 ---@field owner_shows_preview boolean
 ---@field rendered boolean
+---@field mermaid_image_status string|nil
 
 ---Return stable, read-only state for support diagnostics.
 ---@return MDEyeSessionDiagnostic[]
@@ -100,6 +106,7 @@ function M.diagnostics()
       ) == session.preview_buf,
       rendered = session.plan ~= nil and session.rendered_tick ~= nil,
       image_status = session.image_status,
+      mermaid_image_status = session.mermaid_image_status,
     }
   end
   table.sort(diagnostics, function(a, b)
@@ -217,6 +224,24 @@ update = function(session)
   end
 
   local cfg = config.options
+  local mermaid_images = mermaid_image.prepare(session, doc, {
+    enabled = cfg.mermaid.enabled,
+    image = cfg.mermaid.image,
+    max_images = cfg.images.max_images,
+    on_ready = function()
+      if session.closed then
+        return
+      end
+      session.rendered_usable = nil
+      update(session)
+    end,
+  })
+  local extras = {}
+  for byte, state in pairs(mermaid_images) do
+    if state.status == "ready" and state.path then
+      extras[byte] = state.path
+    end
+  end
   local plan = layout.plan(doc, {
     usable_width = usable,
     max_width = cfg.max_width,
@@ -224,7 +249,8 @@ update = function(session)
     code_wrap = cfg.code.wrap,
     mermaid_enabled = cfg.mermaid.enabled,
     mermaid_layout = cfg.mermaid.layout,
-    image_specs = images.prepare(session, doc, cfg.images),
+    mermaid_images = mermaid_images,
+    image_specs = images.prepare(session, doc, cfg.images, extras),
   })
 
   local anchor = view.capture(session)
@@ -283,6 +309,7 @@ function M.close_session(session, opts)
   session.closed = true
   view.clear(session)
   images.clear(session)
+  mermaid_image.clear(session)
   sessions[session.src_buf] = nil
   by_preview[session.preview_buf] = nil
 
@@ -452,6 +479,30 @@ local function code_at_source_byte(plan, byte)
   end
 end
 
+---Open the rendered mermaid PNG for the fence under the preview cursor.
+---@param selected MDEyeSession|nil
+---@return boolean ok
+function M.open_image(selected)
+  local cur_buf = vim.api.nvim_get_current_buf()
+  local active = selected or by_preview[cur_buf] or sessions[cur_buf]
+  if not active or active.closed or not active.plan then
+    notify("no mermaid image to open")
+    return false
+  end
+  local row
+  if cur_buf == active.preview_buf or selected then
+    row = vim.api.nvim_win_get_cursor(active.owner_win)[1] - 1
+  else
+    notify("no mermaid image to open")
+    return false
+  end
+  if mermaid_image.open(active, row) then
+    return true
+  end
+  notify("no mermaid image to open")
+  return false
+end
+
 ---Copy the fenced block under the current preview/source cursor.
 ---@param selected MDEyeSession|nil mapping callbacks pass their own session
 ---@return boolean ok
@@ -514,7 +565,19 @@ local function open_link(session, target)
     return
   end
   if target:match("^file://") then
-    target = target:gsub("^file://", "")
+    local path = vim.uri_to_fname(target)
+    local lower = path:lower()
+    if
+      lower:match("%.png$")
+      or lower:match("%.jpe?g$")
+      or lower:match("%.gif$")
+      or lower:match("%.webp$")
+      or lower:match("%.svg$")
+    then
+      vim.ui.open(path)
+      return
+    end
+    target = path
   end
 
   local path, fragment = target:match("^([^#]*)#(.*)$")
@@ -665,6 +728,9 @@ local function install_mappings(session)
   vim.keymap.set("n", "yc", function()
     M.copy_code(session)
   end, vim.tbl_extend("force", opts, { desc = "mdeye: copy fenced code" }))
+  vim.keymap.set("n", "go", function()
+    M.open_image(session)
+  end, vim.tbl_extend("force", opts, { desc = "mdeye: open mermaid image" }))
 end
 
 ---@param session MDEyeSession

@@ -33,7 +33,12 @@ function M.copy_code()
   return require("mdeye.session").copy_code()
 end
 
----:MDEye [current|split|tab|close|copy-code] dispatcher.
+---@return boolean ok
+function M.open_image()
+  return require("mdeye.session").open_image()
+end
+
+---:MDEye [current|split|tab|close|copy-code|open-image] dispatcher.
 ---@param cmd { args: string }
 function M._command(cmd)
   local arg = vim.trim(cmd.args or "")
@@ -43,6 +48,8 @@ function M._command(cmd)
     M.close()
   elseif arg == "copy-code" then
     M.copy_code()
+  elseif arg == "open-image" then
+    M.open_image()
   elseif arg == "current" or arg == "split" or arg == "tab" then
     M.open({ mode = arg })
   else

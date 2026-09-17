@@ -66,6 +66,10 @@ Verify with: >
 			cursor. The unnamed register is always set; the `+`
 			register is also set when clipboard support is present.
 
+:MDEye open-image	Open the rendered Mermaid PNG for the fence under the
+			preview cursor in the OS image viewer. Same as |mdeye-mappings|
+			`go`.
+
 Opening the same source again focuses its existing preview instead of
 creating a duplicate session. Non-Markdown buffers are rejected with one
 notification.
@@ -88,6 +92,9 @@ gx			Open the link or in-document anchor under the cursor.
 gO			Select a heading from the document outline.
 
 yc			Copy the fenced code block under the cursor.
+
+go			Open the rendered Mermaid PNG for the fence under the
+			cursor in the OS image viewer.
 za / zo / zc            Toggle/open/close a heading or code fold.
 zR / zM                 Open/close all preview folds.
 zA / zO / zC            Recursive native fold operations.
@@ -124,6 +131,9 @@ toggle({opts})					*mdeye.toggle()*
 copy_code()					*mdeye.copy_code()*
 	Copy the fenced code block under the current preview or source cursor.
 
+open_image()					*mdeye.open_image()*
+	Open the rendered Mermaid PNG for the fence under the preview cursor.
+
 ==============================================================================
 6. CONFIGURATION				*mdeye-configuration*
 
@@ -133,7 +143,17 @@ Defaults: >
       max_width = 88,     -- maximum reading width; false follows the window
       min_margin = 3,     -- minimum margin on each side
       debounce_ms = 120,  -- live-update debounce in milliseconds
-      mermaid = { enabled = true, layout = "graph" }, -- or "connections"
+      mermaid = {
+        enabled = true,
+        layout = "graph", -- or "connections"
+        image = {
+          enabled = "auto", -- "auto" | "on" | "off"
+          command = nil,    -- nil detects mmdc
+          timeout_ms = 1500,
+          theme = "auto",   -- "auto" | "default" | "dark"
+          background = "transparent",
+        },
+      },
       images = {
         enabled = false,       -- opt in after configuring image.nvim
         max_width = 60,        -- display cells
@@ -259,6 +279,13 @@ needed for native diagrams.
 Set `mermaid.enabled = false` to always display source. `yc` and |:MDEye|
 copy-code copy original fence content; <CR> jumps to its source. Customize
 the MDEyeDiagram highlight group with :highlight.
+
+When `mermaid.image.enabled` is `auto` or `on` and `mmdc` (mermaid-cli) is
+available, fences also render to a cached PNG. The preview then shows
+`mermaid (image)` and an `open image` link; `go` opens that file in the OS
+viewer. Inline display still requires `images.enabled` and image.nvim.
+Missing backends, timeouts, and failed renders keep native ASCII or the
+complete source. The first paint never waits on `mmdc`.
 
 Reading position and folding                           *mdeye-folds*
 Heading sections and fenced code use native manual folds, initially open.

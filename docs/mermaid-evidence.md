@@ -133,6 +133,8 @@ Next useful extensions, in priority order:
    preserve cycles, parallel edges, disconnected components, and width constraints.
 2. Add subgraphs and sequence diagrams as separate semantic models with their own
    fixtures. Do not discard directives or flatten grouping into the existing model.
-3. Consider an optional official Mermaid SVG/image adapter for full syntax and shape
-   fidelity. This requires explicit backend availability, lifecycle cleanup, caching,
-   and the same complete-source fallback. It is not part of this implementation.
+3. Optional official Mermaid PNG adapter (`lua/mdeye/mermaid_image.lua`): `mmdc`
+   when present, hashed cache under `stdpath("cache")/mdeye/mermaid`, async jobs
+   with a wall-clock timeout, `go` / `:MDEye open-image` for the OS viewer, and
+   inline display through the existing image.nvim reservation path. Native ASCII
+   remains the fallback when the backend is missing or a render fails.
