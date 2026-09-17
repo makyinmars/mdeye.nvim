@@ -78,14 +78,17 @@ local function image_opts(command, extra)
 end
 
 describe("mermaid image adapter", function()
-  it("hashes source, theme, and background", function()
-    local a = mermaid_image.hash("flowchart LR\nA-->B", "dark", "transparent")
-    local b = mermaid_image.hash("flowchart LR\nA-->B", "dark", "transparent")
-    local c = mermaid_image.hash("flowchart LR\nA-->B", "default", "transparent")
-    local d = mermaid_image.hash("flowchart LR\nA-->C", "dark", "transparent")
+  it("hashes source, theme, background, scale, and width", function()
+    local src = "flowchart LR\nA-->B"
+    local a = mermaid_image.hash(src, "dark", "transparent")
+    local b = mermaid_image.hash(src, "dark", "transparent", 3, 1920)
+    local c = mermaid_image.hash(src, "default", "transparent")
+    local d = mermaid_image.hash(src, "dark", "transparent", 2, 1920)
+    local e = mermaid_image.hash(src, "dark", "transparent", 3, 800)
     eq(a, b)
     ok(a ~= c)
     ok(a ~= d)
+    ok(a ~= e)
     eq(64, #a)
   end)
 

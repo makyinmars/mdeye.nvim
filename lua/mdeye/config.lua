@@ -7,6 +7,8 @@ local M = {}
 ---@field timeout_ms integer
 ---@field theme "auto"|"default"|"dark"
 ---@field background string
+---@field scale integer puppeteer device scale; 3 is sharp on retina
+---@field width integer mermaid-cli page width in CSS pixels
 
 ---@class MDEyeConfig
 ---@field open "current"|"split"|"tab"
@@ -29,9 +31,11 @@ local defaults = {
     image = {
       enabled = "auto",
       command = nil,
-      timeout_ms = 1500,
+      timeout_ms = 4000,
       theme = "auto",
       background = "transparent",
+      scale = 3,
+      width = 1920,
     },
   },
   images = {
@@ -81,6 +85,13 @@ local function validate(opts)
           return value == nil or value == "auto" or value == "default" or value == "dark"
         end, true, '"auto"|"default"|"dark"')
         vim.validate("mermaid.image.background", opts.mermaid.image.background, "string", true)
+        vim.validate("mermaid.image.scale", opts.mermaid.image.scale, function(v)
+          return v == nil or (type(v) == "number" and v >= 1 and v <= 8 and v == math.floor(v))
+        end, true, "integer 1-8")
+        vim.validate("mermaid.image.width", opts.mermaid.image.width, function(v)
+          return v == nil
+            or (type(v) == "number" and v > 0 and v < math.huge and v == math.floor(v))
+        end, true, "positive integer")
       end
     end
     vim.validate("images", opts.images, "table", true)

@@ -113,9 +113,11 @@ require("mdeye").setup({
     image = {
       enabled = "auto", -- "auto" | "on" | "off"
       command = nil, -- nil detects `mmdc`; or an executable path
-      timeout_ms = 1500,
+      timeout_ms = 4000,
       theme = "auto", -- "auto" | "default" | "dark"
       background = "transparent",
+      scale = 3, -- puppeteer scale for retina / OS viewer
+      width = 1920, -- mermaid-cli page width in CSS pixels
     },
   },
   images = {
@@ -226,7 +228,7 @@ If `mermaid.image.enabled` is `"auto"` (the default) or `"on"`, and [mermaid-cli
 npm install -g @mermaid-js/mermaid-cli
 ```
 
-If a PNG exists, the preview shows `mermaid (image)` and an `open image` link. `go` or `:MDEye open-image` opens that file in the OS viewer. Inline graphics require `images.enabled = true` and image.nvim. If inline display is not available, the PNG still opens with `go`.
+If a PNG exists, the preview shows `mermaid (image)` and an `open image` link. `go` or `:MDEye open-image` opens that file in the OS viewer. Default `scale` is 3 and `width` is 1920 so opened PNGs stay sharp on retina displays. Inline graphics require `images.enabled = true` and image.nvim. If inline display is not available, the PNG still opens with `go`.
 
 The preview uses a ready PNG first. If there is no PNG, it uses native ASCII. If ASCII cannot render, it shows the original source with a reason. PNG rendering runs in the background. The first paint never waits on Chromium.
 

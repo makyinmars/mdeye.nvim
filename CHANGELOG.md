@@ -22,6 +22,8 @@ All notable changes to mdeye.nvim will be documented in this file.
 
 ### Improved
 
+- Mermaid PNGs render at `scale = 3` and `width = 1920` so diagrams stay sharp
+  when opened in the OS viewer.
 - Reading anchors track source edits and passages within blocks instead of resetting to
   block starts. Diagram rows carry semantic identities for reflow.
 - Buffer updates retain unchanged lines and extmarks. Highlight-only updates do not

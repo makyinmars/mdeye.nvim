@@ -149,9 +149,11 @@ Defaults: >
         image = {
           enabled = "auto", -- "auto" | "on" | "off"
           command = nil,    -- nil detects mmdc
-          timeout_ms = 1500,
+          timeout_ms = 4000,
           theme = "auto",   -- "auto" | "default" | "dark"
           background = "transparent",
+          scale = 3,        -- puppeteer scale for retina / OS viewer
+          width = 1920,     -- mermaid-cli page width in CSS pixels
         },
       },
       images = {
@@ -283,7 +285,9 @@ the MDEyeDiagram highlight group with :highlight.
 When `mermaid.image.enabled` is `auto` or `on` and `mmdc` (mermaid-cli) is
 available, fences also render to a cached PNG. The preview then shows
 `mermaid (image)` and an `open image` link; `go` opens that file in the OS
-viewer. Inline display still requires `images.enabled` and image.nvim.
+viewer. Default `scale` is 3 and `width` is 1920 so opened PNGs stay sharp
+on retina displays. Inline display still requires `images.enabled` and
+image.nvim.
 Missing backends, timeouts, and failed renders keep native ASCII or the
 complete source. The first paint never waits on `mmdc`.
 

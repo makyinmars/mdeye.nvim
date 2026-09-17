@@ -2,6 +2,8 @@
 local M = {}
 
 local MAX_SOURCE_BYTES = 64 * 1024
+local DEFAULT_SCALE = 3
+local DEFAULT_WIDTH = 1920
 
 ---@class MDEyeMermaidImageState
 ---@field status "ready"|"pending"|"failed"
@@ -37,12 +39,36 @@ function M.theme(opts)
   return vim.o.background == "dark" and "dark" or "default"
 end
 
+---@param opts MDEyeMermaidImageConfig
+---@return integer
+function M.scale(opts)
+  return opts.scale or DEFAULT_SCALE
+end
+
+---@param opts MDEyeMermaidImageConfig
+---@return integer
+function M.width(opts)
+  return opts.width or DEFAULT_WIDTH
+end
+
 ---@param source string
 ---@param theme string
 ---@param background string
+---@param scale integer|nil
+---@param width integer|nil
 ---@return string
-function M.hash(source, theme, background)
-  return vim.fn.sha256(source .. "\0" .. theme .. "\0" .. background)
+function M.hash(source, theme, background, scale, width)
+  return vim.fn.sha256(
+    source
+      .. "\0"
+      .. theme
+      .. "\0"
+      .. background
+      .. "\0"
+      .. tostring(scale or DEFAULT_SCALE)
+      .. "\0"
+      .. tostring(width or DEFAULT_WIDTH)
+  )
 end
 
 ---@param opts { cache_dir: string|nil }
@@ -105,7 +131,19 @@ function M.clear(session)
   session.mermaid_image_status = nil
 end
 
-local function start_job(session, bin, hash, source, path, image_opts, theme, background, on_ready)
+local function start_job(
+  session,
+  bin,
+  hash,
+  source,
+  path,
+  image_opts,
+  theme,
+  background,
+  scale,
+  width,
+  on_ready
+)
   session.mermaid_jobs = session.mermaid_jobs or {}
   if session.mermaid_jobs[hash] then
     return
@@ -128,6 +166,10 @@ local function start_job(session, bin, hash, source, path, image_opts, theme, ba
     theme,
     "--backgroundColor",
     background,
+    "--scale",
+    tostring(scale),
+    "--width",
+    tostring(width),
   }
   local job = vim.system(args, { timeout = image_opts.timeout_ms, text = true }, function(obj)
     vim.schedule(function()
@@ -187,6 +229,8 @@ function M.prepare(session, doc, opts)
   vim.fn.mkdir(dir, "p")
   local theme = M.theme(opts.image)
   local background = opts.image.background or "transparent"
+  local scale = M.scale(opts.image)
+  local width = M.width(opts.image)
   local wanted, count = {}, 0
   local max_images = opts.max_images or 32
   walk(doc.blocks, function(block)
@@ -201,7 +245,7 @@ function M.prepare(session, doc, opts)
     if count > max_images then
       return
     end
-    local hash = M.hash(source, theme, background)
+    local hash = M.hash(source, theme, background, scale, width)
     wanted[hash] = true
     local path = M.cache_path(dir, hash)
     local cache = session.mermaid_cache[hash]
@@ -220,6 +264,8 @@ function M.prepare(session, doc, opts)
         opts.image,
         theme,
         background,
+        scale,
+        width,
         opts.on_ready
       )
     end
